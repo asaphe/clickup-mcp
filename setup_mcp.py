@@ -357,6 +357,69 @@ def collect_token() -> str | None:
     return token
 
 
+# --- Workspace config ---
+
+_WORKSPACE_HINT = "Settings → Workspaces, or from any ClickUp URL: app.clickup.com/{workspace_id}/..."
+_SPACE_HINT = "Click a Space → ID is in the URL: /s/{space_id}/..."
+_FOLDER_HINT = "The folder containing your sprint lists. Find it via get_workspace_hierarchy tool or URL."
+_FIELD_HINT = "Custom field ID for your Component/Team dropdown. Use the ClickUp API: GET /list/{id}/field"
+_LABELS_HINT = 'JSON mapping: {"backend": "uuid-1", "frontend": "uuid-2"}'
+
+
+def collect_workspace_config() -> dict[str, str]:
+    """Collect workspace-specific env vars interactively."""
+    env_vars: dict[str, str] = {}
+
+    print(f"  {bold('Workspace configuration')}")
+    print()
+    print(f"  {bold('WORKSPACE_ID')} (required)")
+    print(f"    Hint: {_WORKSPACE_HINT}")
+    print()
+    workspace_id = input("  Workspace ID: ").strip()
+    if not workspace_id:
+        fail("Workspace ID is required.")
+        raise SystemExit(1)
+    env_vars["WORKSPACE_ID"] = workspace_id
+    ok(f"Workspace ID: {workspace_id}")
+    print()
+
+    print(f"  {bold('Optional: Sprint detection')}")
+    print("  Press Enter to skip (sprint tools will be disabled).")
+    print()
+
+    print(f"    {_SPACE_HINT}")
+    space_id = input("  DEVELOPMENT_SPACE_ID [skip]: ").strip()
+    if space_id:
+        env_vars["DEVELOPMENT_SPACE_ID"] = space_id
+        ok(f"Space ID: {space_id}")
+
+        print(f"    {_FOLDER_HINT}")
+        folder_id = input("  SPRINTS_FOLDER_ID [skip]: ").strip()
+        if folder_id:
+            env_vars["SPRINTS_FOLDER_ID"] = folder_id
+            ok(f"Sprints folder ID: {folder_id}")
+    print()
+
+    print(f"  {bold('Optional: Team labels')}")
+    print("  Press Enter to skip (team filtering will be disabled).")
+    print()
+
+    print(f"    {_FIELD_HINT}")
+    field_id = input("  COMPONENT_TEAM_FIELD_ID [skip]: ").strip()
+    if field_id:
+        env_vars["COMPONENT_TEAM_FIELD_ID"] = field_id
+        ok(f"Team field ID: {field_id}")
+
+        print(f"    {_LABELS_HINT}")
+        labels = input("  CLICKUP_TEAM_LABELS [skip]: ").strip()
+        if labels:
+            env_vars["CLICKUP_TEAM_LABELS"] = labels
+            ok("Team labels configured.")
+    print()
+
+    return env_vars
+
+
 # --- Claude Code ---
 
 
@@ -364,7 +427,7 @@ def _claude_code_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def setup_claude_code(token: str) -> bool:
+def setup_claude_code(token: str, env_vars: dict[str, str]) -> bool:
     if not _claude_code_available():
         fail("Claude Code CLI not found.")
         print(
@@ -395,18 +458,14 @@ def setup_claude_code(token: str) -> bool:
         fail("Claude Code CLI not found.")
         return False
 
+    all_env = {"CLICKUP_API_TOKEN": token, **env_vars}
+    cmd: list[str] = ["claude", "mcp", "add"]
+    for key, value in all_env.items():
+        cmd.extend(["-e", f"{key}={value}"])
+    cmd.extend(["-s", "user", MCP_NAME, str(script)])
+
     result = subprocess.run(
-        [
-            "claude",
-            "mcp",
-            "add",
-            "-e",
-            f"CLICKUP_API_TOKEN={token}",
-            "-s",
-            "user",
-            MCP_NAME,
-            str(script),
-        ],
+        cmd,
         capture_output=True,
         text=True,
         check=False,
@@ -452,7 +511,7 @@ def _desktop_config_path() -> Path:
     return Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
 
 
-def setup_claude_desktop(token: str) -> bool:
+def setup_claude_desktop(token: str, env_vars: dict[str, str]) -> bool:
     script = _start_script_path()
     if not script.is_file():
         fail(f"Start script not found: {script}")
@@ -473,11 +532,10 @@ def setup_claude_desktop(token: str) -> bool:
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     cfg.setdefault("mcpServers", {})
+    all_env = {"CLICKUP_API_TOKEN": token, **env_vars}
     cfg["mcpServers"][MCP_NAME] = {
         "command": str(script),
-        "env": {
-            "CLICKUP_API_TOKEN": token,
-        },
+        "env": all_env,
     }
 
     config_path.write_text(json.dumps(cfg, indent=2) + "\n")
@@ -672,15 +730,17 @@ def main() -> int:
         return 1
     print()
 
+    env_vars = collect_workspace_config()
+
     rc = 0
     if args.code or args.both:
-        if not setup_claude_code(token):
+        if not setup_claude_code(token, env_vars):
             rc = 1
         print()
 
     desktop_configured = False
     if args.desktop or args.both:
-        if not setup_claude_desktop(token):
+        if not setup_claude_desktop(token, env_vars):
             rc = 1
         else:
             desktop_configured = True

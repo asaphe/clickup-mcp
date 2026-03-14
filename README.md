@@ -26,8 +26,9 @@ python3 setup_mcp.py
 
 The setup script walks you through:
 1. Token retrieval (1Password integration or manual paste)
-2. Client registration (Claude Code, Claude Desktop, or both)
-3. Automatic restart of Claude Desktop if running
+2. Workspace configuration (workspace ID required, sprint/team IDs optional)
+3. Client registration (Claude Code, Claude Desktop, or both)
+4. Automatic restart of Claude Desktop if running
 
 ## Configuration
 
