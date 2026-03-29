@@ -57,8 +57,121 @@ def bold(msg: str) -> str:
     return _c("1", msg)
 
 
-def _start_script_path() -> Path:
-    return Path(__file__).resolve().parent / "start-clickup-mcp.sh"
+def _server_package_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _resolve_uv() -> Path | None:
+    found = shutil.which("uv")
+    if found:
+        return Path(found).absolute()
+
+    candidates = [
+        Path.home() / ".local" / "bin" / "uv",
+        Path.home() / ".cargo" / "bin" / "uv",
+    ]
+    if platform.system() == "Darwin":
+        candidates += [Path("/opt/homebrew/bin/uv"), Path("/usr/local/bin/uv")]
+    if IS_WINDOWS:
+        candidates += [
+            Path.home() / ".local" / "bin" / "uv.exe",
+            Path.home() / ".cargo" / "bin" / "uv.exe",
+        ]
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _check_dependencies(uv_path: Path) -> bool:
+    info("Verifying server dependencies (this may take a moment)...")
+    try:
+        result = subprocess.run(
+            [
+                str(uv_path),
+                "run",
+                "--directory",
+                str(_server_package_dir()),
+                "python",
+                "-c",
+                "import mcp, httpx, pydantic_settings",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        fail("Dependency verification timed out after 60 seconds.")
+        return False
+    except OSError as exc:
+        fail(f"Could not run uv: {exc}")
+        return False
+
+    if result.returncode != 0:
+        fail("Server dependencies could not be resolved.")
+        stderr = result.stderr.strip()
+        if stderr:
+            print(f"    {stderr}")
+        return False
+
+    ok("Server dependencies verified.")
+    return True
+
+
+def _verify_server_entry_point(uv_path: Path, token: str) -> bool:
+    info("Verifying server entry point...")
+    try:
+        result = subprocess.run(
+            [
+                str(uv_path),
+                "run",
+                "--directory",
+                str(_server_package_dir()),
+                "python",
+                "-c",
+                "import clickup_mcp_server.__main__",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            env={**os.environ, "CLICKUP_API_TOKEN": token},
+        )
+    except subprocess.TimeoutExpired:
+        fail("Server entry point verification timed out.")
+        return False
+    except OSError as exc:
+        fail(f"Could not run uv: {exc}")
+        return False
+
+    if result.returncode != 0:
+        fail("Server entry point failed to load.")
+        stderr = result.stderr.strip()
+        if stderr:
+            print(f"    {stderr}")
+        return False
+
+    ok("Server entry point verified.")
+    return True
+
+
+def _ensure_uv() -> Path | None:
+    uv_path = _resolve_uv()
+    if not uv_path:
+        fail("uv is required but not found on PATH or in standard locations.")
+        info(
+            "Install instructions: https://docs.astral.sh/uv/getting-started/installation/"
+        )
+        return None
+
+    ok(f"Found uv: {uv_path}")
+
+    if not _check_dependencies(uv_path):
+        return None
+
+    return uv_path
 
 
 # --- Token setup ---
@@ -100,6 +213,8 @@ def _op_list_vaults(account_id: str) -> list[dict[str, object]]:
 def _op_search_items(
     account_id: str, vault_name: str, query: str
 ) -> list[dict[str, object]]:
+    if not query:
+        return []
     result = _op_run(
         [
             "item",
@@ -177,79 +292,21 @@ def _find_token_field(fields: list[dict[str, object]]) -> str | None:
     return None
 
 
-def _read_token_from_1password() -> str | None:
-    print()
-    print(f"    {bold('1Password token retrieval')}")
-    print()
+def _search_all_vaults(
+    account_id: str, vaults: list[dict[str, object]], query: str
+) -> list[tuple[str, dict[str, object]]]:
+    results: list[tuple[str, dict[str, object]]] = []
+    for vault in vaults:
+        vault_name = str(vault.get("name", "unnamed"))
+        matches = _op_search_items(account_id, vault_name, query)
+        for item in matches:
+            results.append((vault_name, item))
+    return results
 
-    accounts = _op_list_accounts()
-    if not accounts:
-        fail("No 1Password accounts found. Run: op signin")
-        return None
 
-    if len(accounts) == 1:
-        account = accounts[0]
-        ok(f"Using account: {account.get('email', account.get('url', 'default'))}")
-    else:
-        print("    Which 1Password account?")
-        labels = [f"{a.get('email', 'unknown')} ({a.get('url', '')})" for a in accounts]
-        idx = _pick_from_list_idx(labels, "Account [number]:")
-        if idx is None:
-            fail("Invalid choice.")
-            return None
-        account = accounts[idx]
-
-    account_id = str(account.get("account_uuid", account.get("user_uuid", "")))
-
-    print()
-    info("Loading vaults...")
-    vaults = _op_list_vaults(account_id)
-    if not vaults:
-        fail("Could not list vaults. Check your 1Password sign-in.")
-        return None
-
-    vault_names = [str(v.get("name", "unnamed")) for v in vaults]
-    if len(vault_names) == 1:
-        vault = vault_names[0]
-    else:
-        print("    Which vault contains your ClickUp token?")
-        picked_vault = _pick_from_list(vault_names, "Vault [number]:")
-        if not picked_vault:
-            fail("Invalid choice.")
-            return None
-        vault = picked_vault
-    ok(f"Vault: {vault}")
-
-    print()
-    info('Searching for "clickup" items...')
-    matches = _op_search_items(account_id, vault, "clickup")
-
-    if not matches:
-        info("No items matching 'clickup' found. Listing all items in vault...")
-        all_items = _op_search_items(account_id, vault, "")
-        if all_items:
-            print()
-            print("    Which item contains your ClickUp API token?")
-            labels = [str(m.get("title", "unnamed")) for m in all_items]
-            idx = _pick_from_list_idx(labels, "Item [number]:")
-            if idx is not None:
-                matches = [all_items[idx]]
-        if not matches:
-            fail("No item selected.")
-            return None
-
-    if len(matches) == 1:
-        item = matches[0]
-        ok(f"Found: {item.get('title', '?')}")
-    else:
-        print("    Which item?")
-        labels = [str(m.get("title", "unnamed")) for m in matches]
-        idx = _pick_from_list_idx(labels, "Item [number]:")
-        if idx is None:
-            fail("Invalid choice.")
-            return None
-        item = matches[idx]
-
+def _read_token_from_item(
+    account_id: str, vault: str, item: dict[str, object]
+) -> str | None:
     item_id = str(item.get("id", ""))
     item_title = str(item.get("title", ""))
 
@@ -313,6 +370,97 @@ def _read_token_from_1password() -> str | None:
     return token
 
 
+def _read_token_from_1password(search_query: str = "clickup") -> str | None:
+    print()
+    print(f"    {bold('1Password token retrieval')}")
+    print()
+
+    accounts = _op_list_accounts()
+    if not accounts:
+        fail("No 1Password accounts found. Run: op signin")
+        return None
+
+    if len(accounts) == 1:
+        account = accounts[0]
+        ok(f"Using account: {account.get('email', account.get('url', 'default'))}")
+    else:
+        print("    Which 1Password account?")
+        labels = [f"{a.get('email', 'unknown')} ({a.get('url', '')})" for a in accounts]
+        idx = _pick_from_list_idx(labels, "Account [number]:")
+        if idx is None:
+            fail("Invalid choice.")
+            return None
+        account = accounts[idx]
+
+    account_id = str(account.get("account_uuid", account.get("user_uuid", "")))
+
+    print()
+    info("Loading vaults...")
+    vaults = _op_list_vaults(account_id)
+    if not vaults:
+        fail("Could not list vaults. Check your 1Password sign-in.")
+        return None
+
+    vault_names = [str(v.get("name", "unnamed")) for v in vaults]
+    ok(f"Searching {len(vault_names)} vault(s): {', '.join(vault_names)}")
+
+    print()
+    info(f'Searching all vaults for items matching "{search_query}"...')
+    results = _search_all_vaults(account_id, vaults, search_query)
+
+    if not results:
+        fail(f'No items matching "{search_query}" found in any vault.')
+        info(
+            "Make sure your ClickUp API token is saved in 1Password "
+            f'with "{search_query}" in the item name.'
+        )
+        return None
+
+    if len(results) == 1:
+        vault, item = results[0]
+        ok(f"Found: {item.get('title', '?')} (vault: {vault})")
+    else:
+        print("    Multiple matches found. Which item?")
+        labels = [
+            f"{item.get('title', 'unnamed')} (vault: {vault})"
+            for vault, item in results
+        ]
+        idx = _pick_from_list_idx(labels, "Item [number]:")
+        if idx is None:
+            fail("Invalid choice.")
+            return None
+        vault, item = results[idx]
+
+    return _read_token_from_item(account_id, vault, item)
+
+
+def _paste_token_with_warning(*, has_1password: bool = False) -> str | None:
+    print()
+    warn(
+        _c(
+            "1;33",
+            "Pasting saves the token to disk in plain text (Claude config files).",
+        )
+    )
+    if has_1password:
+        info(
+            "1Password keeps the token secure during retrieval, "
+            "but it will still be stored in the Claude config file."
+        )
+    print()
+    print(
+        f"    Get a personal API token at: {bold('https://app.clickup.com/settings/apps')}"
+    )
+    print()
+    token = input("  Paste your ClickUp API token: ").strip()
+    if not token:
+        fail("No token provided.")
+        return None
+
+    ok("Token received.")
+    return token
+
+
 def collect_token() -> str | None:
     if os.environ.get("CLICKUP_API_TOKEN"):
         ok("CLICKUP_API_TOKEN found in environment.")
@@ -336,88 +484,35 @@ def collect_token() -> str | None:
             token = _read_token_from_1password()
             if token:
                 return token
-            print()
-            info("Falling back to manual paste.")
-            print()
+
+            while True:
+                print()
+                print("  How would you like to proceed?")
+                print(
+                    f"    {bold('1')}) Search 1Password again with a different item name"
+                )
+                print(f"    {bold('2')}) Paste token manually (less secure)")
+                print(f"    {bold('3')}) Cancel")
+                print()
+                retry = input("  Choice [1/2/3]: ").strip()
+                if retry == "1":
+                    custom_query = input("  Item name to search for: ").strip()
+                    if custom_query:
+                        token = _read_token_from_1password(search_query=custom_query)
+                        if token:
+                            return token
+                    else:
+                        warn("Please enter a search term.")
+                    continue
+                if retry == "2":
+                    return _paste_token_with_warning(has_1password=True)
+                return None
     else:
         info("1Password CLI not found — install with: brew install 1password-cli")
         print("    (Recommended for secure token storage)")
         print()
 
-    print(
-        f"    Get a personal API token at: {bold('https://app.clickup.com/settings/apps')}"
-    )
-    print()
-    token = input("  Paste your ClickUp API token: ").strip()
-    if not token:
-        fail("No token provided.")
-        return None
-
-    ok("Token received.")
-    return token
-
-
-# --- Workspace config ---
-
-_WORKSPACE_HINT = "Settings → Workspaces, or from any ClickUp URL: app.clickup.com/{workspace_id}/..."
-_SPACE_HINT = "Click a Space → ID is in the URL: /s/{space_id}/..."
-_FOLDER_HINT = "The folder containing your sprint lists. Find it via get_workspace_hierarchy tool or URL."
-_FIELD_HINT = "Custom field ID for your Component/Team dropdown. Use the ClickUp API: GET /list/{id}/field"
-_LABELS_HINT = 'JSON mapping: {"backend": "uuid-1", "frontend": "uuid-2"}'
-
-
-def collect_workspace_config() -> dict[str, str]:
-    """Collect workspace-specific env vars interactively."""
-    env_vars: dict[str, str] = {}
-
-    print(f"  {bold('Workspace configuration')}")
-    print()
-    print(f"  {bold('WORKSPACE_ID')} (required)")
-    print(f"    Hint: {_WORKSPACE_HINT}")
-    print()
-    workspace_id = input("  Workspace ID: ").strip()
-    if not workspace_id:
-        fail("Workspace ID is required.")
-        raise SystemExit(1)
-    env_vars["WORKSPACE_ID"] = workspace_id
-    ok(f"Workspace ID: {workspace_id}")
-    print()
-
-    print(f"  {bold('Optional: Sprint detection')}")
-    print("  Press Enter to skip (sprint tools will be disabled).")
-    print()
-
-    print(f"    {_SPACE_HINT}")
-    space_id = input("  DEVELOPMENT_SPACE_ID [skip]: ").strip()
-    if space_id:
-        env_vars["DEVELOPMENT_SPACE_ID"] = space_id
-        ok(f"Space ID: {space_id}")
-
-        print(f"    {_FOLDER_HINT}")
-        folder_id = input("  SPRINTS_FOLDER_ID [skip]: ").strip()
-        if folder_id:
-            env_vars["SPRINTS_FOLDER_ID"] = folder_id
-            ok(f"Sprints folder ID: {folder_id}")
-    print()
-
-    print(f"  {bold('Optional: Team labels')}")
-    print("  Press Enter to skip (team filtering will be disabled).")
-    print()
-
-    print(f"    {_FIELD_HINT}")
-    field_id = input("  COMPONENT_TEAM_FIELD_ID [skip]: ").strip()
-    if field_id:
-        env_vars["COMPONENT_TEAM_FIELD_ID"] = field_id
-        ok(f"Team field ID: {field_id}")
-
-        print(f"    {_LABELS_HINT}")
-        labels = input("  CLICKUP_TEAM_LABELS [skip]: ").strip()
-        if labels:
-            env_vars["CLICKUP_TEAM_LABELS"] = labels
-            ok("Team labels configured.")
-    print()
-
-    return env_vars
+    return _paste_token_with_warning()
 
 
 # --- Claude Code ---
@@ -427,17 +522,12 @@ def _claude_code_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def setup_claude_code(token: str, env_vars: dict[str, str]) -> bool:
+def setup_claude_code(token: str, uv_path: Path) -> bool:
     if not _claude_code_available():
         fail("Claude Code CLI not found.")
         print(
             f"    Install: {bold('https://docs.anthropic.com/en/docs/claude-code/overview')}"
         )
-        return False
-
-    script = _start_script_path()
-    if not script.is_file():
-        fail(f"Start script not found: {script}")
         return False
 
     try:
@@ -458,18 +548,34 @@ def setup_claude_code(token: str, env_vars: dict[str, str]) -> bool:
         fail("Claude Code CLI not found.")
         return False
 
-    all_env = {"CLICKUP_API_TOKEN": token, **env_vars}
-    cmd: list[str] = ["claude", "mcp", "add"]
-    for key, value in all_env.items():
-        cmd.extend(["-e", f"{key}={value}"])
-    cmd.extend(["-s", "user", MCP_NAME, str(script)])
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    pkg_dir = _server_package_dir()
+    try:
+        result = subprocess.run(
+            [
+                "claude",
+                "mcp",
+                "add",
+                "-e",
+                f"CLICKUP_API_TOKEN={token}",
+                "-s",
+                "user",
+                MCP_NAME,
+                "--",
+                str(uv_path),
+                "run",
+                "--directory",
+                str(pkg_dir),
+                "python",
+                "-m",
+                "clickup_mcp_server",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        fail("Claude Code CLI not found.")
+        return False
     if result.returncode != 0:
         fail(f"Failed to add MCP server: {result.stderr.strip()}")
         return False
@@ -511,12 +617,7 @@ def _desktop_config_path() -> Path:
     return Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
 
 
-def setup_claude_desktop(token: str, env_vars: dict[str, str]) -> bool:
-    script = _start_script_path()
-    if not script.is_file():
-        fail(f"Start script not found: {script}")
-        return False
-
+def setup_claude_desktop(token: str, uv_path: Path) -> bool:
     config_path = _desktop_config_path()
 
     if config_path.is_file():
@@ -530,15 +631,29 @@ def setup_claude_desktop(token: str, env_vars: dict[str, str]) -> bool:
         cfg = {}
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    if not IS_WINDOWS:
+        config_path.parent.chmod(0o700)
 
+    pkg_dir = _server_package_dir()
     cfg.setdefault("mcpServers", {})
-    all_env = {"CLICKUP_API_TOKEN": token, **env_vars}
     cfg["mcpServers"][MCP_NAME] = {
-        "command": str(script),
-        "env": all_env,
+        "command": str(uv_path),
+        "args": [
+            "run",
+            "--directory",
+            str(pkg_dir),
+            "python",
+            "-m",
+            "clickup_mcp_server",
+        ],
+        "env": {
+            "CLICKUP_API_TOKEN": token,
+        },
     }
 
     config_path.write_text(json.dumps(cfg, indent=2) + "\n")
+    if not IS_WINDOWS:
+        config_path.chmod(0o600)
     ok(f"Added '{MCP_NAME}' to Claude Desktop config.")
     print(f"    Config: {config_path}")
     return True
@@ -724,23 +839,32 @@ def main() -> int:
 
     print()
 
+    uv_path = _ensure_uv()
+    if not uv_path:
+        print()
+        return 1
+    print()
+
     token = collect_token()
     if not token:
         print()
         return 1
     print()
 
-    env_vars = collect_workspace_config()
+    if not _verify_server_entry_point(uv_path, token):
+        print()
+        return 1
+    print()
 
     rc = 0
     if args.code or args.both:
-        if not setup_claude_code(token, env_vars):
+        if not setup_claude_code(token, uv_path):
             rc = 1
         print()
 
     desktop_configured = False
     if args.desktop or args.both:
-        if not setup_claude_desktop(token, env_vars):
+        if not setup_claude_desktop(token, uv_path):
             rc = 1
         else:
             desktop_configured = True
@@ -755,7 +879,7 @@ def main() -> int:
         print()
         print("  Next steps:")
         print("    1. Start a new conversation")
-        print("    2. Try: 'show my tasks' or 'sprint report'")
+        print("    2. Try: 'show my tasks' or 'sprint report for devops'")
     else:
         warn("Some setup steps failed. Review the errors above.")
 
