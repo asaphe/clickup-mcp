@@ -280,6 +280,7 @@ def register_task_tools(server: FastMCP) -> None:
         date_created_after: str | None = None,
         date_updated_after: str | None = None,
         page: int = 0,
+        subtasks: bool = False,
     ) -> str:
         """Search tasks across the workspace.
 
@@ -300,8 +301,11 @@ def register_task_tools(server: FastMCP) -> None:
             date_created_after: ISO date or Unix millis — only tasks created after this.
             date_updated_after: ISO date or Unix millis — only tasks updated after this.
             page: Page number (0-indexed). Check has_more in response for pagination.
+            subtasks: Include subtasks in results (default: false).
         """
         params: list[tuple[str, str]] = [("page", str(page))]
+        if subtasks:
+            params.append(("subtasks", "true"))
         if include_closed:
             params.append(("include_closed", "true"))
         if list_id:
@@ -361,6 +365,7 @@ def register_task_tools(server: FastMCP) -> None:
         """Get tasks assigned to the current user across all lists.
 
         Convenience wrapper around search_tasks with automatic user resolution.
+        Includes subtasks.
 
         Args:
             status: Filter by status(es).
@@ -375,6 +380,7 @@ def register_task_tools(server: FastMCP) -> None:
             date_updated_after=date_updated_after,
             include_closed=include_closed,
             page=page,
+            subtasks=True,
         )
 
     @server.tool(

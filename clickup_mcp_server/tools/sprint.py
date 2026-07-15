@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 from datetime import UTC, datetime
 
@@ -15,7 +16,43 @@ from clickup_mcp_server.models import (
 )
 from clickup_mcp_server.tools.workspace import get_current_user_cached
 
+_SPRINT_NUMBER_RE = re.compile(r"Sprint\s+(\d+)", re.IGNORECASE)
+_MAX_TAG_SEARCH_PAGES = 10
+SPRINT_TAG_SUFFIXES = ("committed", "suggest", "spillover")
+
 _sprint_task: asyncio.Task[SprintInfo] | None = None
+
+
+def extract_sprint_number(sprint_name: str) -> str | None:
+    match = _SPRINT_NUMBER_RE.search(sprint_name)
+    return match.group(1) if match else None
+
+
+async def _fetch_tasks_by_tags(tags: list[str]) -> list[TaskSummary]:
+    tasks: list[TaskSummary] = []
+    page = 0
+    while page < _MAX_TAG_SEARCH_PAGES:
+        params: list[tuple[str, str]] = [
+            ("page", str(page)),
+            ("subtasks", "true"),
+            ("include_closed", "true"),
+        ]
+        for tag in tags:
+            params.append(("tags[]", tag))
+
+        response = await clickup_client.get(
+            f"/team/{settings.workspace_id}/task",
+            params=params,
+        )
+        data = parse_response(response)
+        tasks_raw = data.get("tasks", [])
+        if not isinstance(tasks_raw, list):
+            break
+        tasks.extend(map_task_summary(t) for t in tasks_raw if isinstance(t, dict))
+        if data.get("last_page", False) or not tasks_raw:
+            break
+        page += 1
+    return tasks
 
 
 async def _fetch_sprint() -> SprintInfo:
@@ -168,12 +205,14 @@ def register_sprint_tools(server: FastMCP) -> None:
     ) -> str:
         """List tasks in the current sprint, optionally filtered.
 
+        Includes tasks directly in the sprint list and tasks tagged for the sprint.
+
         Args:
             assignee: Filter by assignee. Use "me" for the current user, or a username.
             status: Filter by status (e.g., "in progress", "done", "todo").
         """
         sprint = await get_current_sprint_cached()
-        tasks: list[TaskSummary] = []
+        list_tasks: list[TaskSummary] = []
         page = 0
         while True:
             response = await clickup_client.get(
@@ -188,25 +227,41 @@ def register_sprint_tools(server: FastMCP) -> None:
             tasks_raw = data.get("tasks", [])
             if not isinstance(tasks_raw, list):
                 break
-            tasks.extend(map_task_summary(t) for t in tasks_raw if isinstance(t, dict))
+            list_tasks.extend(
+                map_task_summary(t) for t in tasks_raw if isinstance(t, dict)
+            )
             if data.get("last_page", True):
                 break
             page += 1
+
+        sprint_num = extract_sprint_number(sprint.name)
+        if sprint_num:
+            tags = [f"{sprint_num}-{suffix}" for suffix in SPRINT_TAG_SUFFIXES]
+            tagged_tasks = await _fetch_tasks_by_tags(tags)
+            seen_ids = {t.id for t in list_tasks}
+            for task in tagged_tasks:
+                if task.id not in seen_ids:
+                    list_tasks.append(task)
+                    seen_ids.add(task.id)
 
         if assignee:
             target = assignee.lower()
             if target == "me":
                 user = await get_current_user_cached()
                 target = user.username.lower()
-            tasks = [t for t in tasks if any(a.lower() == target for a in t.assignees)]
+            list_tasks = [
+                t for t in list_tasks if any(a.lower() == target for a in t.assignees)
+            ]
 
         if status:
             status_lower = status.lower()
-            tasks = [t for t in tasks if t.status.lower() == status_lower]
+            list_tasks = [
+                task for task in list_tasks if task.status.lower() == status_lower
+            ]
 
         result = {
             "sprint": sprint.name,
-            "total": len(tasks),
-            "tasks": [t.model_dump(exclude_none=True) for t in tasks],
+            "total": len(list_tasks),
+            "tasks": [t.model_dump(exclude_none=True) for t in list_tasks],
         }
         return compact_json(result)
