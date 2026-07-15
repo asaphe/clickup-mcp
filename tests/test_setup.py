@@ -294,3 +294,90 @@ def test_op_run_survives_missing_binary(monkeypatch: pytest.MonkeyPatch) -> None
     result = setup._op_run(["account", "list", "--format=json"])
 
     assert result.returncode != 0
+
+
+def test_remove_claude_code_succeeds_when_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup.shutil, "which", lambda _name: "/usr/bin/claude")
+
+    def fake_run(
+        args: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stdout="",
+            stderr='No MCP server named "clickup" in user scope',
+        )
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+
+    assert setup.remove_claude_code() is True
+
+
+def test_remove_claude_code_fails_on_genuine_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup.shutil, "which", lambda _name: "/usr/bin/claude")
+
+    def fake_run(
+        args: list[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=args, returncode=1, stdout="", stderr="internal error: something broke"
+        )
+
+    monkeypatch.setattr(setup.subprocess, "run", fake_run)
+
+    assert setup.remove_claude_code() is False
+
+
+def test_remove_claude_desktop_fails_on_unparseable_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConfigPath:
+        def is_file(self) -> bool:
+            return True
+
+        def read_text(self) -> str:
+            return "{not valid json"
+
+    monkeypatch.setattr(setup, "_desktop_config_path", lambda: FakeConfigPath())
+
+    assert setup.remove_claude_desktop() is False
+
+
+def test_remove_claude_desktop_removes_existing_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConfigPath:
+        content = ""
+
+        def is_file(self) -> bool:
+            return True
+
+        def read_text(self) -> str:
+            return json.dumps({"mcpServers": {setup.MCP_NAME: {"command": "x"}}})
+
+        def write_text(self, text: str) -> None:
+            self.content = text
+
+    config_path = FakeConfigPath()
+    monkeypatch.setattr(setup, "_desktop_config_path", lambda: config_path)
+
+    assert setup.remove_claude_desktop() is True
+    cfg = json.loads(config_path.content)
+    assert setup.MCP_NAME not in cfg["mcpServers"]
+
+
+def test_main_remove_reports_failure_when_a_step_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["setup.py", "--remove"])
+    monkeypatch.setattr(setup, "remove_claude_code", lambda: False)
+    monkeypatch.setattr(setup, "remove_claude_desktop", lambda: True)
+
+    assert setup.main() == 1

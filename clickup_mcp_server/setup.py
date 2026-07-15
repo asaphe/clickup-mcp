@@ -655,7 +655,14 @@ def remove_claude_code() -> bool:
     )
     if result.returncode == 0:
         ok(f"Removed '{MCP_NAME}' from Claude Code.")
-    return True
+        return True
+
+    stderr = result.stderr.strip()
+    if "No MCP server named" in stderr:
+        return True
+
+    fail(f"Failed to remove '{MCP_NAME}' from Claude Code: {stderr}")
+    return False
 
 
 # --- Claude Desktop ---
@@ -723,14 +730,22 @@ def remove_claude_desktop() -> bool:
 
     try:
         cfg = json.loads(config_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return True
+    except (json.JSONDecodeError, OSError) as exc:
+        fail(f"Could not parse existing config at {config_path}: {exc}")
+        return False
 
     servers = cfg.get("mcpServers", {})
-    if MCP_NAME in servers:
-        del servers[MCP_NAME]
+    if MCP_NAME not in servers:
+        return True
+
+    del servers[MCP_NAME]
+    try:
         config_path.write_text(json.dumps(cfg, indent=2) + "\n")
-        ok(f"Removed '{MCP_NAME}' from Claude Desktop config.")
+    except OSError as exc:
+        fail(f"Could not write updated config to {config_path}: {exc}")
+        return False
+
+    ok(f"Removed '{MCP_NAME}' from Claude Desktop config.")
     return True
 
 
@@ -874,12 +889,18 @@ def main() -> int:
     print()
 
     if args.remove:
-        remove_claude_code()
-        remove_claude_desktop()
+        remove_rc = 0
+        if not remove_claude_code():
+            remove_rc = 1
+        if not remove_claude_desktop():
+            remove_rc = 1
         print()
-        ok("Unregistered from all clients.")
+        if remove_rc == 0:
+            ok("Unregistered from all clients.")
+        else:
+            warn("Some removal steps failed. Review the errors above.")
         print()
-        return 0
+        return remove_rc
 
     if not args.code and not args.desktop and not args.both:
         print("  Which client(s) do you want to configure?")
