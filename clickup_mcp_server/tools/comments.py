@@ -1,10 +1,8 @@
-import json
-
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import clickup_client, parse_response, resolve_task_id
-from clickup_mcp_server.models import map_comment
+from clickup_mcp_server.models import compact_json, map_comment
 
 
 def register_comment_tools(server: FastMCP) -> None:
@@ -28,7 +26,7 @@ def register_comment_tools(server: FastMCP) -> None:
         )
         data = parse_response(response)
         comment_id = data.get("id") or data.get("hist_id", "")
-        return json.dumps({"status": "ok", "comment_id": str(comment_id)})
+        return compact_json({"status": "ok", "comment_id": str(comment_id)})
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -49,4 +47,4 @@ def register_comment_tools(server: FastMCP) -> None:
         if not isinstance(comments_raw, list):
             comments_raw = []
         comments = [map_comment(c) for c in comments_raw if isinstance(c, dict)]
-        return json.dumps([c.model_dump() for c in comments], indent=2)
+        return compact_json([c.model_dump(exclude_none=True) for c in comments])

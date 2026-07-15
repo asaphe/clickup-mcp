@@ -76,3 +76,13 @@ class TestMapComment:
         }
         result = map_comment(raw)
         assert result.comment_text == ""
+
+    def test_block_with_null_text(self) -> None:
+        raw = {
+            "id": "c3",
+            "comment": [{"text": "see "}, {"type": "image", "text": None}],
+            "user": {"username": "example-user"},
+            "date": "1709000000000",
+        }
+        result = map_comment(raw)
+        assert result.comment_text == "see "

@@ -1,6 +1,19 @@
+import json
+
 from pydantic import BaseModel, Field
 
 from clickup_mcp_server.config import TEAM_LABELS, settings
+
+
+def compact_json(payload: object) -> str:
+    """Serialize an MCP tool result as compact JSON.
+
+    Pydantic models also drop null-valued keys; raw dicts/lists are serialized
+    as-is.
+    """
+    if isinstance(payload, BaseModel):
+        return payload.model_dump_json(exclude_none=True)
+    return json.dumps(payload, separators=(",", ":"))
 
 
 class SprintInfo(BaseModel):
@@ -80,6 +93,15 @@ class EnsureFieldsResult(BaseModel):
     checked: int
     issues: list[FieldCheckResult]
     all_compliant: bool
+
+
+class TeamLabelsAudit(BaseModel):
+    configured: bool
+    stale: dict[str, str] = Field(default_factory=dict)
+    valid: list[str] = Field(default_factory=list)
+    unmapped_live_options: dict[str, str] = Field(default_factory=dict)
+    in_sync: bool
+    message: str | None = None
 
 
 class SprintReportTask(BaseModel):
@@ -214,7 +236,7 @@ def map_comment(raw: dict[str, object]) -> TaskComment:
     parts = raw.get("comment", [])
     text = ""
     if isinstance(parts, list):
-        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+        text = "".join(p.get("text") or "" for p in parts if isinstance(p, dict))
     user_data = raw.get("user")
     username = (
         user_data.get("username", "unknown")  # type: ignore[union-attr]

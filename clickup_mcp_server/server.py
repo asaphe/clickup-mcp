@@ -19,8 +19,10 @@ Common workflows:
 - Sprint review: get_sprint_tasks (filter by assignee/status)
 - My work: get_my_tasks (cross-list, filterable)
 - Post-merge: update_task(status="done") + update_task(append_description="...")
+- Delete junk: delete_task (permanently remove a task)
 - Compliance: ensure_task_fields (check/fix assignee, team, points)
 - Bulk fix: bulk_update_tasks (set status/team/assignee across multiple tasks)
+- Team labels: check_team_labels (compare config with live options)
 - Sprint report: get_sprint_report (tasks by assignee, status counts, at-risk flags)
 """
 

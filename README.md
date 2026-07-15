@@ -1,6 +1,6 @@
 # ClickUp MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, and workspace navigation through 21 tools.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, and workspace navigation through 23 tools.
 
 ## Features
 
@@ -57,7 +57,7 @@ All configuration is via environment variables. Only `CLICKUP_API_TOKEN` and `WO
 
 Example `CLICKUP_TEAM_LABELS`:
 ```json
-{"backend": "uuid-1", "frontend": "uuid-2", "devops": "uuid-3"}
+{"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
 ```
 
 ### Optional — Tuning
@@ -78,7 +78,7 @@ Example `CLICKUP_TEAM_LABELS`:
 
 ## Tools
 
-21 tools across 5 categories:
+23 tools across 5 categories:
 
 ### Sprint Management
 | Tool | Description |
@@ -100,6 +100,7 @@ Example `CLICKUP_TEAM_LABELS`:
 | `move_task_to_list` | Move a task to a different list |
 | `bulk_update_tasks` | Batch-update status/team/assignee across multiple tasks |
 | `ensure_task_fields` | Check and fix missing fields (assignee, team, points) |
+| `delete_task` | Delete a task permanently |
 
 ### Comments
 | Tool | Description |
@@ -120,6 +121,7 @@ Example `CLICKUP_TEAM_LABELS`:
 | `task_url` | Get the ClickUp URL for a task |
 | `add_tag_to_task` | Add a tag to a task |
 | `list_teams` | List available team labels |
+| `check_team_labels` | Check configured team labels against live ClickUp options |
 
 ## Usage Examples
 
