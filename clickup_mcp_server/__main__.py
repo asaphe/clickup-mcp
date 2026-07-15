@@ -1,4 +1,4 @@
-from clickup_mcp_server.server import mcp_server
+from clickup_mcp_server.cli import main
 
 if __name__ == "__main__":
-    mcp_server.run()
+    main()

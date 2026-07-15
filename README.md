@@ -19,9 +19,8 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that c
 ## Quick Start
 
 ```bash
-git clone https://github.com/asaphe/clickup-mcp.git
-cd clickup-mcp
-python3 setup_mcp.py
+uv tool install "clickup-mcp-server @ git+https://github.com/asaphe/clickup-mcp.git"
+clickup-mcp-server setup --code
 ```
 
 The setup script walks you through:
@@ -29,6 +28,36 @@ The setup script walks you through:
 2. Workspace configuration (workspace ID required, sprint/team IDs optional)
 3. Client registration (Claude Code, Claude Desktop, or both)
 4. Automatic restart of Claude Desktop if running
+
+To configure Claude Desktop instead, run:
+
+```bash
+clickup-mcp-server setup --desktop
+```
+
+To configure both clients:
+
+```bash
+clickup-mcp-server setup --both
+```
+
+### Alternative: Run from a Local Clone
+
+Use this flow when you want to hack on the server itself:
+
+```bash
+git clone https://github.com/asaphe/clickup-mcp.git
+cd clickup-mcp
+uv sync --dev
+uv tool install --editable .
+python3 setup_mcp.py
+```
+
+This uses the same setup wizard, but runs it from the repo root layout used by this public package.
+Run `uv tool install --editable .` first: the setup wizard only installs
+`clickup-mcp-server` via `uv tool install` when it isn't already on your PATH,
+so an editable install done beforehand is preserved instead of being replaced
+by the published GitHub version.
 
 ## Configuration
 
