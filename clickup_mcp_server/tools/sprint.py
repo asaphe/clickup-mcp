@@ -1,13 +1,18 @@
 import asyncio
-import json
 import time
+from datetime import UTC, datetime
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import clickup_client, parse_response
 from clickup_mcp_server.config import settings
-from clickup_mcp_server.models import SprintInfo, TaskSummary, map_task_summary
+from clickup_mcp_server.models import (
+    SprintInfo,
+    TaskSummary,
+    compact_json,
+    map_task_summary,
+)
 from clickup_mcp_server.tools.workspace import get_current_user_cached
 
 _sprint_task: asyncio.Task[SprintInfo] | None = None
@@ -16,13 +21,11 @@ _sprint_task: asyncio.Task[SprintInfo] | None = None
 async def _fetch_sprint() -> SprintInfo:
     if not settings.development_space_id:
         raise RuntimeError(
-            "DEVELOPMENT_SPACE_ID is not configured. "
-            "Set it to use sprint detection."
+            "DEVELOPMENT_SPACE_ID is not configured. Set it to use sprint detection."
         )
     if not settings.sprints_folder_id:
         raise RuntimeError(
-            "SPRINTS_FOLDER_ID is not configured. "
-            "Set it to use sprint detection."
+            "SPRINTS_FOLDER_ID is not configured. Set it to use sprint detection."
         )
 
     response = await clickup_client.get(
@@ -95,8 +98,6 @@ async def _fetch_sprint() -> SprintInfo:
     ):
         raise RuntimeError("No sprint lists found in sprints folder")
 
-    from datetime import UTC, datetime
-
     start_dt = datetime.fromtimestamp(int(best_list["start_date"]) / 1000, tz=UTC)
     end_dt = datetime.fromtimestamp(int(best_list["due_date"]) / 1000, tz=UTC)
 
@@ -136,7 +137,7 @@ def register_sprint_tools(server: FastMCP) -> None:
         Requires DEVELOPMENT_SPACE_ID and SPRINTS_FOLDER_ID to be configured.
         """
         sprint = await get_current_sprint_cached()
-        return sprint.model_dump_json(indent=2)
+        return compact_json(sprint)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -153,7 +154,7 @@ def register_sprint_tools(server: FastMCP) -> None:
         global _sprint_task
         _sprint_task = None
         sprint = await get_current_sprint_cached()
-        return sprint.model_dump_json(indent=2)
+        return compact_json(sprint)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -206,6 +207,6 @@ def register_sprint_tools(server: FastMCP) -> None:
         result = {
             "sprint": sprint.name,
             "total": len(tasks),
-            "tasks": [t.model_dump() for t in tasks],
+            "tasks": [t.model_dump(exclude_none=True) for t in tasks],
         }
-        return json.dumps(result, indent=2)
+        return compact_json(result)

@@ -1,5 +1,5 @@
 import asyncio
-import json
+from datetime import UTC, datetime
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -7,9 +7,12 @@ from mcp.types import ToolAnnotations
 from clickup_mcp_server.client import (
     ClickUpAPIError,
     clickup_client,
+    encode_path_segment,
     is_custom_task_id,
     parse_response,
     resolve_task_id,
+    validate_list_id,
+    validate_task_id,
 )
 from clickup_mcp_server.config import TEAM_LABELS, settings
 from clickup_mcp_server.models import (
@@ -19,6 +22,7 @@ from clickup_mcp_server.models import (
     FieldCheckResult,
     SearchResult,
     TaskSummary,
+    compact_json,
     map_task_detail,
     map_task_summary,
 )
@@ -29,13 +33,19 @@ from clickup_mcp_server.tools.workspace import get_current_user_cached
 def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
     label_id = TEAM_LABELS.get(team.lower())
     if not label_id:
-        return []
+        if TEAM_LABELS:
+            valid = ", ".join(sorted(TEAM_LABELS))
+            raise ValueError(f"Unknown team {team!r}. Valid: {valid}.")
+        raise ValueError(
+            f"Unknown team {team!r}. Configure CLICKUP_TEAM_LABELS before using "
+            "team labels."
+        )
     return [{"id": settings.component_team_field_id, "value": [label_id]}]
 
 
 async def _set_custom_field(task_uuid: str, field_id: object, value: object) -> None:
     resp = await clickup_client.post(
-        f"/task/{task_uuid}/field/{field_id}",
+        f"/task/{validate_task_id(task_uuid)}/field/{encode_path_segment(field_id)}",
         json_data={"value": value},
     )
     parse_response(resp)
@@ -58,6 +68,7 @@ def register_task_tools(server: FastMCP) -> None:
             task_id: Task ID (custom like DEV-1234 or UUID).
             include_subtasks: Include subtask details (default: true).
         """
+        validate_task_id(task_id)
         params: dict[str, str] = {}
         if is_custom_task_id(task_id):
             params["custom_task_ids"] = "true"
@@ -68,7 +79,7 @@ def register_task_tools(server: FastMCP) -> None:
         response = await clickup_client.get(f"/task/{task_id}", params=params or None)
         data = parse_response(response)
         detail = map_task_detail(data)
-        return detail.model_dump_json(indent=2)
+        return compact_json(detail)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -102,10 +113,11 @@ def register_task_tools(server: FastMCP) -> None:
             parent_task_id: Parent task ID for creating subtasks.
             priority: 1=urgent, 2=high, 3=normal, 4=low.
         """
+        validate_list_id(list_id)
         body: dict[str, object] = {"name": name, "status": status}
         if description:
-            body["description"] = description
-        if assignee_id:
+            body["markdown_content"] = description
+        if assignee_id is not None:
             body["assignees"] = [assignee_id]
         if points is not None:
             body["points"] = points
@@ -115,9 +127,7 @@ def register_task_tools(server: FastMCP) -> None:
             resolved_parent = await resolve_task_id(parent_task_id)
             body["parent"] = resolved_parent
         if team:
-            cf = _build_custom_field_payload(team)
-            if cf:
-                body["custom_fields"] = cf
+            body["custom_fields"] = _build_custom_field_payload(team)
 
         response = await clickup_client.post(f"/list/{list_id}/task", json_data=body)
         data = parse_response(response)
@@ -139,7 +149,7 @@ def register_task_tools(server: FastMCP) -> None:
             if isinstance(status_data, dict)
             else "unknown",
         )
-        return result.model_dump_json(indent=2)
+        return compact_json(result)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -228,13 +238,16 @@ def register_task_tools(server: FastMCP) -> None:
             body["points"] = points
 
         if append_description is not None:
-            current_resp = await clickup_client.get(f"/task/{resolved}")
+            current_resp = await clickup_client.get(
+                f"/task/{resolved}",
+                params={"include_markdown_description": "true"},
+            )
             current_data = parse_response(current_resp)
-            existing = current_data.get("description", "") or ""
+            existing = current_data.get("markdown_description", "") or ""
             separator = "\n\n---\n\n" if existing else ""
-            body["description"] = f"{existing}{separator}{append_description}"
+            body["markdown_content"] = f"{existing}{separator}{append_description}"
         elif description is not None:
-            body["description"] = description
+            body["markdown_content"] = description
 
         assignees: dict[str, list[int]] = {}
         if assignee_add is not None:
@@ -250,7 +263,7 @@ def register_task_tools(server: FastMCP) -> None:
         response = await clickup_client.put(f"/task/{resolved}", json_data=body)
         data = parse_response(response)
         detail = map_task_detail(data)
-        return detail.model_dump_json(indent=2)
+        return compact_json(detail)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -331,7 +344,7 @@ def register_task_tools(server: FastMCP) -> None:
             page=page,
             has_more=not last_page if isinstance(last_page, bool) else True,
         )
-        return result.model_dump_json(indent=2)
+        return compact_json(result)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -382,6 +395,7 @@ def register_task_tools(server: FastMCP) -> None:
             status: Filter by status (e.g., "todo", "in progress").
             include_closed: Include closed/done tasks (default: false).
         """
+        validate_list_id(list_id)
         base_params: dict[str, str] = {"subtasks": "true"}
         if include_closed:
             base_params["include_closed"] = "true"
@@ -404,9 +418,9 @@ def register_task_tools(server: FastMCP) -> None:
         result = {
             "list_id": list_id,
             "total": len(tasks),
-            "tasks": [t.model_dump() for t in tasks],
+            "tasks": [t.model_dump(exclude_none=True) for t in tasks],
         }
-        return json.dumps(result, indent=2)
+        return compact_json(result)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -421,10 +435,11 @@ def register_task_tools(server: FastMCP) -> None:
             task_id: Task ID (custom like DEV-1234 or UUID).
             list_id: Target list ID.
         """
+        validate_list_id(list_id)
         resolved = await resolve_task_id(task_id)
         response = await clickup_client.post(f"/list/{list_id}/task/{resolved}")
         parse_response(response)
-        return json.dumps(
+        return compact_json(
             {"status": "ok", "task_id": task_id, "moved_to_list": list_id}
         )
 
@@ -456,6 +471,7 @@ def register_task_tools(server: FastMCP) -> None:
         if not task_ids:
             return "Error: task_ids list is empty."
 
+        custom_fields = _build_custom_field_payload(team) if team else None
         updated: list[str] = []
         failed: list[dict[str, str]] = []
 
@@ -467,23 +483,27 @@ def register_task_tools(server: FastMCP) -> None:
                     body["status"] = status
                 if points is not None:
                     body["points"] = points
-                if assignee_add:
+                if assignee_add is not None:
                     body["assignees"] = {"add": [assignee_add]}
                 if body:
                     response = await clickup_client.put(
                         f"/task/{resolved}", json_data=body
                     )
                     parse_response(response)
-                if team:
-                    cf = _build_custom_field_payload(team)
-                    if cf:
-                        await _set_custom_field(resolved, cf[0]["id"], cf[0]["value"])
+                if custom_fields:
+                    await _set_custom_field(
+                        resolved, custom_fields[0]["id"], custom_fields[0]["value"]
+                    )
                 updated.append(tid)
-            except (ClickUpAPIError, Exception) as exc:
+            except ClickUpAPIError as exc:
+                failed.append(
+                    {"task_id": tid, "error": f"ClickUp API error {exc.status_code}"}
+                )
+            except Exception as exc:
                 failed.append({"task_id": tid, "error": str(exc)})
 
         result = BulkUpdateResult(updated=updated, failed=failed, total=len(task_ids))
-        return result.model_dump_json(indent=2)
+        return compact_json(result)
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -511,10 +531,16 @@ def register_task_tools(server: FastMCP) -> None:
             default_points: Points to set if missing and fix=true.
         """
         fields = required_fields or ["assignee", "team", "points"]
+        default_team_fields = (
+            _build_custom_field_payload(default_team)
+            if fix and default_team and "team" in fields
+            else None
+        )
         issues: list[FieldCheckResult] = []
 
         for tid in task_ids:
             try:
+                validate_task_id(tid)
                 params: dict[str, str] = {}
                 if is_custom_task_id(tid):
                     params["custom_task_ids"] = "true"
@@ -543,24 +569,27 @@ def register_task_tools(server: FastMCP) -> None:
                     fixed = False
                     if fix:
                         fix_body: dict[str, object] = {}
-                        if "assignee" in missing and default_assignee_id:
+                        fixed_fields: set[str] = set()
+                        if "assignee" in missing and default_assignee_id is not None:
                             fix_body["assignees"] = {"add": [default_assignee_id]}
+                            fixed_fields.add("assignee")
                         if "points" in missing and default_points is not None:
                             fix_body["points"] = default_points
+                            fixed_fields.add("points")
                         resolved = await resolve_task_id(tid)
                         if fix_body:
                             fix_resp = await clickup_client.put(
                                 f"/task/{resolved}", json_data=fix_body
                             )
                             parse_response(fix_resp)
-                        if "team" in missing and default_team:
-                            cf = _build_custom_field_payload(default_team)
-                            if cf:
-                                await _set_custom_field(
-                                    resolved, cf[0]["id"], cf[0]["value"]
-                                )
-                        if fix_body or ("team" in missing and default_team):
-                            fixed = True
+                        if "team" in missing and default_team_fields:
+                            await _set_custom_field(
+                                resolved,
+                                default_team_fields[0]["id"],
+                                default_team_fields[0]["value"],
+                            )
+                            fixed_fields.add("team")
+                        fixed = all(field in fixed_fields for field in missing)
 
                     issues.append(
                         FieldCheckResult(
@@ -571,7 +600,17 @@ def register_task_tools(server: FastMCP) -> None:
                             fixed=fixed,
                         )
                     )
-            except (ClickUpAPIError, Exception) as exc:
+            except ClickUpAPIError as exc:
+                issues.append(
+                    FieldCheckResult(
+                        task_id=tid,
+                        custom_id=None,
+                        name=f"ClickUp API error {exc.status_code}",
+                        missing_fields=[],
+                        fixed=False,
+                    )
+                )
+            except Exception as exc:
                 issues.append(
                     FieldCheckResult(
                         task_id=tid,
@@ -585,9 +624,39 @@ def register_task_tools(server: FastMCP) -> None:
         result = EnsureFieldsResult(
             checked=len(task_ids),
             issues=issues,
-            all_compliant=len(issues) == 0,
+            all_compliant=all(issue.fixed for issue in issues),
         )
-        return result.model_dump_json(indent=2)
+        return compact_json(result)
+
+    @server.tool(
+        annotations=ToolAnnotations(
+            destructiveHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def delete_task(task_id: str) -> str:
+        """Delete a task permanently. This action cannot be undone.
+
+        Args:
+            task_id: Task ID, either a custom ID or ClickUp UUID.
+        """
+        validate_task_id(task_id)
+        params: dict[str, str] = {}
+        if is_custom_task_id(task_id):
+            params["custom_task_ids"] = "true"
+            params["team_id"] = settings.workspace_id
+
+        response = await clickup_client.get(f"/task/{task_id}", params=params or None)
+        data = parse_response(response)
+        task_name = str(data.get("name", ""))
+        resolved = validate_task_id(str(data["id"]))
+
+        del_response = await clickup_client.delete(f"/task/{resolved}")
+        parse_response(del_response)
+
+        return compact_json(
+            {"status": "deleted", "task_id": task_id, "name": task_name}
+        )
 
 
 def _to_millis(value: str) -> str:
@@ -595,7 +664,6 @@ def _to_millis(value: str) -> str:
         if len(value) > 10:
             return value
         return str(int(value) * 1000)
-    from datetime import UTC, datetime
 
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))

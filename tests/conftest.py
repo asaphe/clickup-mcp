@@ -14,6 +14,7 @@ SAMPLE_TASK_RAW: dict[str, object] = {
     "assignees": [{"id": 12345678, "username": "testuser", "email": "t@example.com"}],
     "points": 3.0,
     "description": "A test task description with PR https://github.com/org/repo/pull/42",
+    "markdown_description": "A test task description with PR https://github.com/org/repo/pull/42",
     "priority": {"priority": "high", "id": "2"},
     "tags": [{"name": "31-committed"}],
     "parent": None,

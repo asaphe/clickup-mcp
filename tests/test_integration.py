@@ -67,3 +67,23 @@ class TestIntegration:
         data = json.loads(get_tool_text(result))
         assert "tasks" in data
         assert isinstance(data["tasks"], list)
+
+    @pytest.mark.asyncio
+    async def test_team_labels_in_sync_with_live_clickup(self) -> None:
+        import json
+
+        from mcp.server.fastmcp import FastMCP
+
+        from clickup_mcp_server.config import TEAM_LABELS
+        from clickup_mcp_server.tools.workspace import register_workspace_tools
+
+        if not TEAM_LABELS:
+            pytest.skip("CLICKUP_TEAM_LABELS is not configured")
+
+        server = FastMCP("test")
+        register_workspace_tools(server)
+        result = await server.call_tool("check_team_labels", {})
+        data = json.loads(get_tool_text(result))
+        assert data["configured"] is True
+        assert data["stale"] == {}, f"Stale team labels: {data['stale']}"
+        assert data["in_sync"] is True

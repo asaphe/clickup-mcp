@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from urllib.parse import quote
 
 import httpx
 
@@ -9,10 +10,40 @@ from clickup_mcp_server.config import settings
 logger = logging.getLogger(__name__)
 
 _CUSTOM_ID_RE = re.compile(r"^[A-Z]+-\d+$", re.IGNORECASE)
+_SAFE_TASK_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\Z")
+_NUMERIC_ID_RE = re.compile(r"^[0-9]+\Z")
 
 
 def is_custom_task_id(task_id: str) -> bool:
     return bool(_CUSTOM_ID_RE.match(task_id))
+
+
+def validate_task_id(task_id: str) -> str:
+    """Reject task IDs that could redirect a ClickUp API path."""
+    if not _SAFE_TASK_ID_RE.match(task_id):
+        raise ValueError(
+            f"Invalid task_id {task_id!r}: must contain only letters, digits, "
+            "hyphens, or underscores."
+        )
+    return task_id
+
+
+def validate_list_id(list_id: str) -> str:
+    """Reject list IDs that could redirect a ClickUp API path."""
+    if not _NUMERIC_ID_RE.match(list_id):
+        raise ValueError(f"Invalid list_id {list_id!r}: must contain only digits.")
+    return list_id
+
+
+def validate_space_id(space_id: str) -> str:
+    """Reject space IDs that could redirect a ClickUp API path."""
+    if not _NUMERIC_ID_RE.match(space_id):
+        raise ValueError(f"Invalid space_id {space_id!r}: must contain only digits.")
+    return space_id
+
+
+def encode_path_segment(value: object) -> str:
+    return quote(str(value), safe="")
 
 
 class ClickUpAPIError(Exception):
@@ -30,6 +61,12 @@ def parse_response(response: httpx.Response) -> dict[str, object]:
         except Exception:
             err_msg = response.text
         raise ClickUpAPIError(response.status_code, str(err_msg))
+    if response.status_code == 204 or not response.content:
+        if response.status_code != 204:
+            logger.warning(
+                "Empty body with status %d; returning {}", response.status_code
+            )
+        return {}
     return response.json()
 
 
@@ -66,6 +103,9 @@ class ClickUpClient:
         self, path: str, json_data: dict[str, object] | None = None
     ) -> httpx.Response:
         return await self._request("PUT", path, json=json_data)
+
+    async def delete(self, path: str) -> httpx.Response:
+        return await self._request("DELETE", path)
 
     async def _request(
         self,
@@ -120,6 +160,7 @@ clickup_client = ClickUpClient()
 
 
 async def resolve_task_id(task_id: str) -> str:
+    validate_task_id(task_id)
     if not is_custom_task_id(task_id):
         return task_id
     response = await clickup_client.get(
@@ -127,4 +168,4 @@ async def resolve_task_id(task_id: str) -> str:
         params={"custom_task_ids": "true", "team_id": settings.workspace_id},
     )
     data = parse_response(response)
-    return str(data["id"])
+    return validate_task_id(str(data["id"]))
