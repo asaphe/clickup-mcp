@@ -28,6 +28,9 @@ ignore = ["PLR2004", "PLR0912"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["SLF001"]
 
+[project.scripts]
+clickup-mcp-server = "clickup_mcp_server.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
