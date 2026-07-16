@@ -1,6 +1,6 @@
 # ClickUp MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, and workspace navigation through 23 tools.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 24 tools.
 
 ## Features
 
@@ -9,6 +9,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that c
 - **Reporting** — sprint reports with at-risk detection, PR link extraction, status summaries
 - **Workspace navigation** — browse spaces, folders, lists; resolve custom task IDs
 - **Comments** — read and write task comments
+- **Docs** — create a native ClickUp Doc with real markdown tables/headers, unlike a task description
 
 ## Prerequisites
 
@@ -107,7 +108,7 @@ Example `CLICKUP_TEAM_LABELS`:
 
 ## Tools
 
-23 tools across 5 categories:
+24 tools across 6 categories:
 
 ### Sprint Management
 | Tool | Description |
@@ -152,6 +153,11 @@ Example `CLICKUP_TEAM_LABELS`:
 | `list_teams` | List available team labels |
 | `check_team_labels` | Check configured team labels against live ClickUp options |
 
+### Docs
+| Tool | Description |
+|------|-------------|
+| `create_doc` | Create a native ClickUp Doc (v3 API) with one page of markdown content; returns its URL. Create-only, PRIVATE by default — sharing is a manual follow-up in the ClickUp UI. |
+
 ## Usage Examples
 
 In Claude Code or Claude Desktop, just ask naturally:
@@ -162,6 +168,7 @@ In Claude Code or Claude Desktop, just ask naturally:
 - "mark DEV-1234 as done"
 - "what's the current sprint?"
 - "show unassigned tasks in the sprint"
+- "write this up as a doc so the tables render properly"
 
 ## Key Patterns
 
@@ -173,7 +180,7 @@ In Claude Code or Claude Desktop, just ask naturally:
 
 ## Coexistence with Built-in ClickUp MCP
 
-This server works alongside the official ClickUp MCP connector. The built-in handles features not covered here (time tracking, Docs, chat). You can register both, though having both may cause tool-selection ambiguity for overlapping operations.
+This server works alongside the official ClickUp MCP connector. The built-in handles features not covered here (time tracking, reading/listing existing Docs, chat) — `create_doc` here only creates new ones. You can register both, though having both may cause tool-selection ambiguity for overlapping operations.
 
 ## Development
 
@@ -198,6 +205,7 @@ clickup_mcp_server/
     comments.py   — Comment read/write
     reporting.py  — Sprint reports with at-risk detection
     workspace.py  — User info, hierarchy, tags
+    docs.py       — Doc creation (v3 API)
 ```
 
 ## License

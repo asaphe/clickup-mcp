@@ -28,18 +28,25 @@ def validate_task_id(task_id: str) -> str:
     return task_id
 
 
+def _validate_numeric_id(value: str, label: str) -> str:
+    """Reject values that could redirect a ClickUp API path. ClickUp
+    space/list/folder/workspace IDs are all numeric, so a digits-only
+    allowlist rejects every path-traversal character outright."""
+    if not _NUMERIC_ID_RE.match(value):
+        raise ValueError(f"Invalid {label} {value!r}: must contain only digits.")
+    return value
+
+
 def validate_list_id(list_id: str) -> str:
-    """Reject list IDs that could redirect a ClickUp API path."""
-    if not _NUMERIC_ID_RE.match(list_id):
-        raise ValueError(f"Invalid list_id {list_id!r}: must contain only digits.")
-    return list_id
+    return _validate_numeric_id(list_id, "list_id")
 
 
 def validate_space_id(space_id: str) -> str:
-    """Reject space IDs that could redirect a ClickUp API path."""
-    if not _NUMERIC_ID_RE.match(space_id):
-        raise ValueError(f"Invalid space_id {space_id!r}: must contain only digits.")
-    return space_id
+    return _validate_numeric_id(space_id, "space_id")
+
+
+def validate_doc_parent_id(parent_id: str) -> str:
+    return _validate_numeric_id(parent_id, "parent_id")
 
 
 def encode_path_segment(value: object) -> str:

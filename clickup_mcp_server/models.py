@@ -68,6 +68,13 @@ class CreateTaskResult(BaseModel):
     status: str
 
 
+class CreateDocResult(BaseModel):
+    doc_id: str
+    page_id: str
+    name: str
+    url: str
+
+
 class SearchResult(BaseModel):
     tasks: list[TaskSummary]
     total: int
