@@ -1,6 +1,7 @@
 from mcp.server.fastmcp import FastMCP
 
 from clickup_mcp_server.tools.comments import register_comment_tools
+from clickup_mcp_server.tools.docs import register_doc_tools
 from clickup_mcp_server.tools.reporting import register_reporting_tools
 from clickup_mcp_server.tools.sprint import register_sprint_tools
 from clickup_mcp_server.tools.tasks import register_task_tools
@@ -24,6 +25,8 @@ Common workflows:
 - Bulk fix: bulk_update_tasks (set status/team/assignee across multiple tasks)
 - Team labels: check_team_labels (compare config with live options)
 - Sprint report: get_sprint_report (tasks by assignee, status counts, at-risk flags)
+- Shareable report/RFC: create_doc (native ClickUp Doc with real markdown tables,
+  not a task description — sharing/visibility is a separate manual step)
 """
 
 mcp_server = FastMCP("clickup", instructions=INSTRUCTIONS)
@@ -33,3 +36,4 @@ register_task_tools(mcp_server)
 register_comment_tools(mcp_server)
 register_reporting_tools(mcp_server)
 register_workspace_tools(mcp_server)
+register_doc_tools(mcp_server)
