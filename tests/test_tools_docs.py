@@ -198,3 +198,152 @@ class TestCreateDoc:
             )
 
         assert post_called is False
+
+
+class TestUpdateDocPage:
+    @pytest.mark.asyncio
+    async def test_replaces_content_with_defaults(self) -> None:
+        captured: list[tuple[str, dict[str, object] | None]] = []
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            captured.append((path, json_data))
+            return _mock_response({})
+
+        server = _make_server()
+        with patch.object(clickup_client, "put", side_effect=mock_put):
+            result = await server.call_tool(
+                "update_doc_page",
+                {"doc_id": "doc123", "page_id": "page456", "content": "# New body"},
+            )
+            data = json.loads(get_tool_text(result))
+
+        path, body = captured[0]
+        assert path == (
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            "/docs/doc123/pages/page456"
+        )
+        assert body == {
+            "content": "# New body",
+            "content_edit_mode": "replace",
+            "content_format": "text/md",
+        }
+        assert data == {
+            "doc_id": "doc123",
+            "page_id": "page456",
+            "url": f"https://app.clickup.com/{settings.workspace_id}/v/dc/doc123/page456",
+        }
+
+    @pytest.mark.asyncio
+    async def test_replaces_content_with_new_name(self) -> None:
+        captured: dict[str, object] = {}
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            captured["body"] = json_data
+            return _mock_response({})
+
+        server = _make_server()
+        with patch.object(clickup_client, "put", side_effect=mock_put):
+            result = await server.call_tool(
+                "update_doc_page",
+                {
+                    "doc_id": "doc123",
+                    "page_id": "page456",
+                    "content": "# Corrected body",
+                    "name": "Corrected Title",
+                },
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert captured["body"] == {
+            "content": "# Corrected body",
+            "content_edit_mode": "replace",
+            "content_format": "text/md",
+            "name": "Corrected Title",
+        }
+        assert data["name"] == "Corrected Title"
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_doc_id(self) -> None:
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Invalid doc_id"),
+        ):
+            await server.call_tool(
+                "update_doc_page",
+                {
+                    "doc_id": "../../workspace/999999999/docs",
+                    "page_id": "page456",
+                    "content": "body",
+                },
+            )
+
+        assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_page_id(self) -> None:
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Invalid page_id"),
+        ):
+            await server.call_tool(
+                "update_doc_page",
+                {
+                    "doc_id": "doc123",
+                    "page_id": "page456?team_id=evil",
+                    "content": "body",
+                },
+            )
+
+        assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_content_format(self) -> None:
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Invalid content_format"),
+        ):
+            await server.call_tool(
+                "update_doc_page",
+                {
+                    "doc_id": "doc123",
+                    "page_id": "page456",
+                    "content": "body",
+                    "content_format": "text/html",
+                },
+            )
+
+        assert put_called is False
