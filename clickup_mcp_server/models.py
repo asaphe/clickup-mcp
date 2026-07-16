@@ -75,6 +75,13 @@ class CreateDocResult(BaseModel):
     url: str
 
 
+class UpdateDocPageResult(BaseModel):
+    doc_id: str
+    page_id: str
+    name: str | None = None
+    url: str
+
+
 class SearchResult(BaseModel):
     tasks: list[TaskSummary]
     total: int

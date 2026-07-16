@@ -4,10 +4,22 @@ from clickup_mcp_server.client import (
     ClickUpAPIError,
     is_custom_task_id,
     parse_response,
+    validate_doc_id,
     validate_list_id,
+    validate_page_id,
     validate_space_id,
     validate_task_id,
 )
+
+_SAFE_ID_TRAVERSAL_PAYLOADS = [
+    "../../workspace/999999999/field",
+    "abc123/../../list/1",
+    "abc?team_id=evil",
+    "abc#fragment",
+    "abc 123",
+    "abc123\n",
+    "",
+]
 
 
 class TestIsCustomTaskId:
@@ -37,18 +49,7 @@ class TestValidateTaskId:
     def test_uuid_like_id_passes(self) -> None:
         assert validate_task_id("abc123_xyz") == "abc123_xyz"
 
-    @pytest.mark.parametrize(
-        "malicious_id",
-        [
-            "../../workspace/999999999/field",
-            "abc123/../../list/1",
-            "abc?team_id=evil",
-            "abc#fragment",
-            "abc 123",
-            "abc123\n",
-            "",
-        ],
-    )
+    @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
     def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
         with pytest.raises(ValueError, match="Invalid task_id"):
             validate_task_id(malicious_id)
@@ -78,6 +79,26 @@ class TestValidateSpaceId:
     def test_rejects_non_numeric_id(self, malicious_id: str) -> None:
         with pytest.raises(ValueError, match="Invalid space_id"):
             validate_space_id(malicious_id)
+
+
+class TestValidateDocId:
+    def test_alphanumeric_id_passes(self) -> None:
+        assert validate_doc_id("doc-abc123") == "doc-abc123"
+
+    @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
+    def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
+        with pytest.raises(ValueError, match="Invalid doc_id"):
+            validate_doc_id(malicious_id)
+
+
+class TestValidatePageId:
+    def test_alphanumeric_id_passes(self) -> None:
+        assert validate_page_id("page-xyz789") == "page-xyz789"
+
+    @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
+    def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
+        with pytest.raises(ValueError, match="Invalid page_id"):
+            validate_page_id(malicious_id)
 
 
 class TestParseResponse:

@@ -1,6 +1,6 @@
 # ClickUp MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 24 tools.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 25 tools.
 
 ## Features
 
@@ -108,7 +108,7 @@ Example `CLICKUP_TEAM_LABELS`:
 
 ## Tools
 
-24 tools across 6 categories:
+25 tools across 6 categories:
 
 ### Sprint Management
 | Tool | Description |
@@ -157,6 +157,15 @@ Example `CLICKUP_TEAM_LABELS`:
 | Tool | Description |
 |------|-------------|
 | `create_doc` | Create a native ClickUp Doc (v3 API) with one page of markdown content; returns its URL. Create-only, PRIVATE by default — sharing is a manual follow-up in the ClickUp UI. |
+| `update_doc_page` | Overwrite an existing Doc page's content in place (replace-only), with an optional retitle; returns its URL. |
+
+ClickUp's v3 Docs API has no DELETE endpoint for Docs or Pages — confirmed against
+developer.clickup.com's own `llms.txt` index and public OpenAPI spec, and empirically
+(a live `DELETE` call against a real doc returned `405 Method Not Allowed`, not `404`,
+meaning the route exists but the verb is rejected). So there's no `delete_doc` tool, and
+`update_doc_page` is replace-only by design: the client retries transport errors,
+including a timeout that can fire after the server already applied the edit — a replace
+is idempotent under retry, but append/prepend would silently double-apply.
 
 ## Usage Examples
 
@@ -205,7 +214,7 @@ clickup_mcp_server/
     comments.py   — Comment read/write
     reporting.py  — Sprint reports with at-risk detection
     workspace.py  — User info, hierarchy, tags
-    docs.py       — Doc creation (v3 API)
+    docs.py       — Doc create/update (v3 API)
 ```
 
 ## License

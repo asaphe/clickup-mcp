@@ -10,7 +10,7 @@ from clickup_mcp_server.config import settings
 logger = logging.getLogger(__name__)
 
 _CUSTOM_ID_RE = re.compile(r"^[A-Z]+-\d+$", re.IGNORECASE)
-_SAFE_TASK_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\Z")
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+\Z")
 _NUMERIC_ID_RE = re.compile(r"^[0-9]+\Z")
 
 
@@ -18,14 +18,18 @@ def is_custom_task_id(task_id: str) -> bool:
     return bool(_CUSTOM_ID_RE.match(task_id))
 
 
-def validate_task_id(task_id: str) -> str:
-    """Reject task IDs that could redirect a ClickUp API path."""
-    if not _SAFE_TASK_ID_RE.match(task_id):
+def _validate_safe_id(value: str, label: str) -> str:
+    """Reject IDs that could redirect a ClickUp API path."""
+    if not _SAFE_ID_RE.match(value):
         raise ValueError(
-            f"Invalid task_id {task_id!r}: must contain only letters, digits, "
+            f"Invalid {label} {value!r}: must contain only letters, digits, "
             "hyphens, or underscores."
         )
-    return task_id
+    return value
+
+
+def validate_task_id(task_id: str) -> str:
+    return _validate_safe_id(task_id, "task_id")
 
 
 def _validate_numeric_id(value: str, label: str) -> str:
@@ -47,6 +51,14 @@ def validate_space_id(space_id: str) -> str:
 
 def validate_doc_parent_id(parent_id: str) -> str:
     return _validate_numeric_id(parent_id, "parent_id")
+
+
+def validate_doc_id(doc_id: str) -> str:
+    return _validate_safe_id(doc_id, "doc_id")
+
+
+def validate_page_id(page_id: str) -> str:
+    return _validate_safe_id(page_id, "page_id")
 
 
 def encode_path_segment(value: object) -> str:
