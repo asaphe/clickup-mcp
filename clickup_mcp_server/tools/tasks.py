@@ -211,6 +211,7 @@ def register_task_tools(server: FastMCP) -> None:
         append_description: str | None = None,
         assignee_add: int | None = None,
         assignee_remove: int | None = None,
+        parent_task_id: str | None = None,
     ) -> str:
         """Update fields on a task. Only specified fields are changed.
 
@@ -224,6 +225,9 @@ def register_task_tools(server: FastMCP) -> None:
             append_description: Append text to existing description (separated by newline).
             assignee_add: User ID to add as assignee.
             assignee_remove: User ID to remove from assignees.
+            parent_task_id: Parent task ID to nest this task under (custom like DEV-1234
+                or UUID), including re-parenting a task that has never had a parent.
+                Setting this also moves the task to the parent's list.
         """
         resolved = await resolve_task_id(task_id)
         body: dict[str, object] = {}
@@ -236,6 +240,8 @@ def register_task_tools(server: FastMCP) -> None:
             body["priority"] = priority
         if points is not None:
             body["points"] = points
+        if parent_task_id:
+            body["parent"] = await resolve_task_id(parent_task_id)
 
         if append_description is not None:
             current_resp = await clickup_client.get(

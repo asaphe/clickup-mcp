@@ -223,6 +223,45 @@ class TestUpdateTask:
         assert "description" not in captured_body
 
     @pytest.mark.asyncio
+    async def test_update_task_sets_parent(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        captured_body: dict[str, object] = {}
+        resolve_calls: list[str] = []
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def mock_resolve(task_id: str) -> str:
+            resolve_calls.append(task_id)
+            return f"resolved-{task_id}"
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                side_effect=mock_resolve,
+            ),
+        ):
+            await server.call_tool(
+                "update_task",
+                {"task_id": "TASK-9999", "parent_task_id": "TASK-1000"},
+            )
+
+        assert captured_body["parent"] == "resolved-TASK-1000"
+        assert resolve_calls == ["TASK-9999", "TASK-1000"]
+
+    @pytest.mark.asyncio
     async def test_update_task_append_reads_markdown_description(self) -> None:
         from mcp.server.fastmcp import FastMCP
 
