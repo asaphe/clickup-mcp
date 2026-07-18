@@ -262,6 +262,74 @@ class TestUpdateTask:
         assert resolve_calls == ["TASK-9999", "TASK-1000"]
 
     @pytest.mark.asyncio
+    async def test_update_task_rejects_path_altering_id(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Invalid task_id"),
+        ):
+            await server.call_tool(
+                "update_task",
+                {
+                    "task_id": "../../workspace/999999999/field",
+                    "name": "New name",
+                },
+            )
+
+        assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_update_task_rejects_path_altering_parent_id(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Invalid task_id"),
+        ):
+            await server.call_tool(
+                "update_task",
+                {
+                    "task_id": "abc123",
+                    "parent_task_id": "../../workspace/999999999/field",
+                },
+            )
+
+        assert put_called is False
+
+    @pytest.mark.asyncio
     async def test_update_task_append_reads_markdown_description(self) -> None:
         from mcp.server.fastmcp import FastMCP
 

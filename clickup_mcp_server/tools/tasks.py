@@ -240,7 +240,7 @@ def register_task_tools(server: FastMCP) -> None:
             body["priority"] = priority
         if points is not None:
             body["points"] = points
-        if parent_task_id:
+        if parent_task_id is not None:
             body["parent"] = await resolve_task_id(parent_task_id)
 
         if append_description is not None:
