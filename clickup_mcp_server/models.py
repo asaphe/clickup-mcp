@@ -66,6 +66,7 @@ class CreateTaskResult(BaseModel):
     name: str
     url: str
     status: str
+    list_id_override: str | None = None
 
 
 class CreateDocResult(BaseModel):

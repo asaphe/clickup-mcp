@@ -51,6 +51,28 @@ async def _set_custom_field(task_uuid: str, field_id: object, value: object) -> 
     parse_response(resp)
 
 
+async def _resolve_parent_and_list(parent_task_id: str) -> tuple[str, str | None]:
+    """Resolve a parent task ID to its ClickUp ID and current list ID.
+
+    ClickUp rejects task creation when the parent lives in a different list
+    than the target list, so callers need the parent's real list to avoid a
+    bare "Parent not child of list" 400.
+    """
+    validate_task_id(parent_task_id)
+    params: dict[str, str] = {}
+    if is_custom_task_id(parent_task_id):
+        params["custom_task_ids"] = "true"
+        params["team_id"] = settings.workspace_id
+    response = await clickup_client.get(
+        f"/task/{parent_task_id}", params=params or None
+    )
+    data = parse_response(response)
+    list_data = data.get("list")
+    list_id = list_data.get("id") if isinstance(list_data, dict) else None
+    resolved_id = validate_task_id(str(data["id"]))
+    return resolved_id, validate_list_id(str(list_id)) if list_id else None
+
+
 def register_task_tools(server: FastMCP) -> None:
     @server.tool(
         annotations=ToolAnnotations(
@@ -104,13 +126,17 @@ def register_task_tools(server: FastMCP) -> None:
 
         Args:
             name: Task title.
-            list_id: Target list ID. Use get_current_sprint or get_workspace_hierarchy to find IDs.
+            list_id: Target list ID. Use get_current_sprint or get_workspace_hierarchy to
+                find IDs. Always required, but if parent_task_id names a task in a
+                different list, the task is created there instead (ClickUp requires
+                parent and child to share a list) — see list_id_override in the result.
             description: Task description (markdown supported).
             assignee_id: User ID to assign. Use get_current_user to find your ID.
             status: Initial status (default: "in progress").
             points: Story points.
             team: Component/Team label. See list_teams for available values.
-            parent_task_id: Parent task ID for creating subtasks.
+            parent_task_id: Parent task ID for creating subtasks. Its list wins over
+                list_id when the two differ.
             priority: 1=urgent, 2=high, 3=normal, 4=low.
         """
         validate_list_id(list_id)
@@ -123,13 +149,24 @@ def register_task_tools(server: FastMCP) -> None:
             body["points"] = points
         if priority is not None:
             body["priority"] = priority
+
+        target_list_id = list_id
+        list_id_override: str | None = None
         if parent_task_id:
-            resolved_parent = await resolve_task_id(parent_task_id)
+            resolved_parent, parent_list_id = await _resolve_parent_and_list(
+                parent_task_id
+            )
             body["parent"] = resolved_parent
+            if parent_list_id and parent_list_id != list_id:
+                target_list_id = parent_list_id
+                list_id_override = parent_list_id
         if team:
             body["custom_fields"] = _build_custom_field_payload(team)
 
-        response = await clickup_client.post(f"/list/{list_id}/task", json_data=body)
+        validate_list_id(target_list_id)
+        response = await clickup_client.post(
+            f"/list/{target_list_id}/task", json_data=body
+        )
         data = parse_response(response)
 
         custom_id = data.get("custom_id")
@@ -148,6 +185,7 @@ def register_task_tools(server: FastMCP) -> None:
             status=status_data.get("status", "unknown")  # type: ignore[union-attr]
             if isinstance(status_data, dict)
             else "unknown",
+            list_id_override=list_id_override,
         )
         return compact_json(result)
 

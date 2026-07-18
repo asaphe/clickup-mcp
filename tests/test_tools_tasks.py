@@ -186,6 +186,123 @@ class TestCreateTask:
                 {"name": "Test", "list_id": "123", "team": "unknown"},
             )
 
+    @pytest.mark.asyncio
+    async def test_create_task_uses_parent_list_when_different(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        captured_get_path: str | None = None
+        captured_post_path: str | None = None
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            nonlocal captured_get_path
+            captured_get_path = path
+            return _mock_response(
+                {**SAMPLE_TASK_RAW, "id": "parent1", "list": {"id": "999"}}
+            )
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal captured_post_path
+            captured_post_path = path
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch.object(clickup_client, "post", side_effect=mock_post),
+        ):
+            result = await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "parent_task_id": "DEV-1"},
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert captured_get_path == "/task/DEV-1"
+        assert captured_post_path == "/list/999/task"
+        assert data["list_id_override"] == "999"
+
+    @pytest.mark.asyncio
+    async def test_create_task_no_override_when_parent_shares_list(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        captured_post_path: str | None = None
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response(
+                {**SAMPLE_TASK_RAW, "id": "parent1", "list": {"id": "123"}}
+            )
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal captured_post_path
+            captured_post_path = path
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch.object(clickup_client, "post", side_effect=mock_post),
+        ):
+            result = await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "parent_task_id": "DEV-1"},
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert captured_post_path == "/list/123/task"
+        assert "list_id_override" not in data
+
+    @pytest.mark.asyncio
+    async def test_create_task_rejects_path_altering_parent_task_id(self) -> None:
+        from mcp.server.fastmcp import FastMCP
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        post_called = False
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal post_called
+            post_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            pytest.raises(ToolError, match="Invalid task_id"),
+        ):
+            await server.call_tool(
+                "create_task",
+                {
+                    "name": "X",
+                    "list_id": "123",
+                    "parent_task_id": "../../workspace/1/field",
+                },
+            )
+
+        assert post_called is False
+
 
 class TestUpdateTask:
     @pytest.mark.asyncio
