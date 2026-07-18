@@ -67,6 +67,10 @@ async def _resolve_parent_and_list(parent_task_id: str) -> tuple[str, str | None
         f"/task/{parent_task_id}", params=params or None
     )
     data = parse_response(response)
+    if "id" not in data:
+        raise ClickUpAPIError(
+            response.status_code, f"Parent task {parent_task_id!r} not found."
+        )
     list_data = data.get("list")
     list_id = list_data.get("id") if isinstance(list_data, dict) else None
     resolved_id = validate_task_id(str(data["id"]))
@@ -163,7 +167,6 @@ def register_task_tools(server: FastMCP) -> None:
         if team:
             body["custom_fields"] = _build_custom_field_payload(team)
 
-        validate_list_id(target_list_id)
         response = await clickup_client.post(
             f"/list/{target_list_id}/task", json_data=body
         )
@@ -206,6 +209,10 @@ def register_task_tools(server: FastMCP) -> None:
         """Create a task in the current sprint with sensible defaults.
 
         Auto-resolves the current sprint list and (optionally) the current user.
+        If parent_task_id lives in a different list than the current sprint, the
+        task is created there instead (ClickUp requires parent and child to share
+        a list) and will not appear in sprint queries — check list_id_override in
+        the result.
 
         Requires DEVELOPMENT_SPACE_ID and SPRINTS_FOLDER_ID to be configured.
 

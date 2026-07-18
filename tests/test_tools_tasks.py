@@ -269,6 +269,45 @@ class TestCreateTask:
         assert "list_id_override" not in data
 
     @pytest.mark.asyncio
+    async def test_create_task_raises_clean_error_when_parent_lookup_empty(
+        self,
+    ) -> None:
+        from mcp.server.fastmcp import FastMCP
+        from mcp.server.fastmcp.exceptions import ToolError
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        post_called = False
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response({})
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal post_called
+            post_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = FastMCP("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            pytest.raises(ToolError, match="not found"),
+        ):
+            await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "parent_task_id": "DEV-1"},
+            )
+
+        assert post_called is False
+
+    @pytest.mark.asyncio
     async def test_create_task_rejects_path_altering_parent_task_id(self) -> None:
         from mcp.server.fastmcp import FastMCP
         from mcp.server.fastmcp.exceptions import ToolError
