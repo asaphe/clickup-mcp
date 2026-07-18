@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MCP server for ClickUp task management"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp==1.26.0",
+    "mcp==1.28.1",
     "httpx>=0.28.0",
     "pydantic-settings==2.14.2",
 ]
