@@ -32,6 +32,8 @@ DOC_PARENT_TYPES: dict[str, int] = {
     "workspace": 12,
 }
 
+DOC_PARENT_TYPE_NAMES: dict[int, str] = {v: k for k, v in DOC_PARENT_TYPES.items()}
+
 DOC_VISIBILITY_VALUES = ("PUBLIC", "PRIVATE", "PERSONAL", "HIDDEN")
 
 
