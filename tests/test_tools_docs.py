@@ -347,3 +347,409 @@ class TestUpdateDocPage:
             )
 
         assert put_called is False
+
+
+class TestGetDoc:
+    @pytest.mark.asyncio
+    async def test_returns_doc_metadata(self) -> None:
+        captured: list[tuple[str, object]] = []
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            captured.append((path, params))
+            return _mock_response(
+                {
+                    "id": "doc123",
+                    "name": "RFC Title",
+                    "parent": {"id": "123456789", "type": 4},
+                    "public": False,
+                    "date_created": 1784208435058,
+                    "date_updated": 1784635013781,
+                }
+            )
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            result = await server.call_tool("get_doc", {"doc_id": "doc123"})
+            data = json.loads(get_tool_text(result))
+
+        path, params = captured[0]
+        assert path == (
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}/docs/doc123"
+        )
+        assert params is None
+        assert data == {
+            "id": "doc123",
+            "name": "RFC Title",
+            "parent_id": "123456789",
+            "parent_type": "space",
+            "public": False,
+            "date_created": 1784208435058,
+            "date_updated": 1784635013781,
+        }
+
+    @pytest.mark.asyncio
+    async def test_unknown_parent_type_code_omitted(self) -> None:
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            return _mock_response(
+                {
+                    "id": "doc123",
+                    "name": "RFC Title",
+                    "parent": {"id": "123456789", "type": 999},
+                    "public": False,
+                    "date_created": 1784208435058,
+                    "date_updated": 1784635013781,
+                }
+            )
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            result = await server.call_tool("get_doc", {"doc_id": "doc123"})
+            data = json.loads(get_tool_text(result))
+
+        assert "parent_type" not in data
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_doc_id(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response({"id": "doc123"})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid doc_id"),
+        ):
+            await server.call_tool(
+                "get_doc", {"doc_id": "../../workspace/999999999/docs"}
+            )
+
+        assert get_called is False
+
+
+class TestGetDocPages:
+    @pytest.mark.asyncio
+    async def test_returns_flat_page_list_with_defaults(self) -> None:
+        captured: list[tuple[str, object]] = []
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            captured.append((path, params))
+            return _mock_response(
+                [
+                    {
+                        "id": "page456",
+                        "doc_id": "doc123",
+                        "name": "RFC Title",
+                        "content": "# Body",
+                        "date_created": 1784208436171,
+                        "date_updated": 1784635013781,
+                        "archived": False,
+                    }
+                ]
+            )
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            result = await server.call_tool("get_doc_pages", {"doc_id": "doc123"})
+            data = json.loads(get_tool_text(result))
+
+        path, params = captured[0]
+        assert path == (
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            "/docs/doc123/pages"
+        )
+        assert params == {"content_format": "text/md", "max_page_depth": "-1"}
+        assert data == [
+            {
+                "id": "page456",
+                "doc_id": "doc123",
+                "name": "RFC Title",
+                "content": "# Body",
+                "date_created": 1784208436171,
+                "date_updated": 1784635013781,
+                "archived": False,
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_flattens_nested_subpages(self) -> None:
+        """ClickUp nests sub-pages under their parent's "pages" key rather
+        than returning a flat array — regression test for content silently
+        dropped when a Doc has sub-pages."""
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            return _mock_response(
+                [
+                    {
+                        "id": "parent1",
+                        "doc_id": "doc123",
+                        "name": "Parent",
+                        "content": "",
+                        "date_created": 1,
+                        "date_updated": 2,
+                        "archived": False,
+                        "pages": [
+                            {
+                                "id": "child1",
+                                "doc_id": "doc123",
+                                "name": "Child One",
+                                "content": "child one body",
+                                "date_created": 3,
+                                "date_updated": 4,
+                                "archived": False,
+                            },
+                            {
+                                "id": "child2",
+                                "doc_id": "doc123",
+                                "name": "Child Two",
+                                "content": "child two body",
+                                "date_created": 5,
+                                "date_updated": 6,
+                                "archived": False,
+                                "pages": [
+                                    {
+                                        "id": "grandchild1",
+                                        "doc_id": "doc123",
+                                        "name": "Grandchild",
+                                        "content": "grandchild body",
+                                        "date_created": 7,
+                                        "date_updated": 8,
+                                        "archived": False,
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ]
+            )
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            result = await server.call_tool("get_doc_pages", {"doc_id": "doc123"})
+            data = json.loads(get_tool_text(result))
+
+        assert [p["id"] for p in data] == [
+            "parent1",
+            "child1",
+            "child2",
+            "grandchild1",
+        ]
+        assert [p["content"] for p in data] == [
+            "",
+            "child one body",
+            "child two body",
+            "grandchild body",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_custom_content_format_and_depth(self) -> None:
+        captured: dict[str, object] = {}
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            captured["params"] = params
+            return _mock_response([])
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            await server.call_tool(
+                "get_doc_pages",
+                {
+                    "doc_id": "doc123",
+                    "content_format": "text/plain",
+                    "max_page_depth": 2,
+                },
+            )
+
+        assert captured["params"] == {
+            "content_format": "text/plain",
+            "max_page_depth": "2",
+        }
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_doc_id(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response([])
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid doc_id"),
+        ):
+            await server.call_tool(
+                "get_doc_pages", {"doc_id": "../../workspace/999999999/docs"}
+            )
+
+        assert get_called is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_content_format(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response([])
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid content_format"),
+        ):
+            await server.call_tool(
+                "get_doc_pages",
+                {"doc_id": "doc123", "content_format": "text/html"},
+            )
+
+        assert get_called is False
+
+
+class TestGetDocPage:
+    @pytest.mark.asyncio
+    async def test_returns_single_page_with_defaults(self) -> None:
+        captured: list[tuple[str, object]] = []
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            captured.append((path, params))
+            return _mock_response(
+                {
+                    "id": "page456",
+                    "doc_id": "doc123",
+                    "name": "RFC Title",
+                    "content": "# Body",
+                    "date_created": 1784208436171,
+                    "date_updated": 1784635013781,
+                    "archived": False,
+                }
+            )
+
+        server = _make_server()
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            result = await server.call_tool(
+                "get_doc_page", {"doc_id": "doc123", "page_id": "page456"}
+            )
+            data = json.loads(get_tool_text(result))
+
+        path, params = captured[0]
+        assert path == (
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            "/docs/doc123/pages/page456"
+        )
+        assert params == {"content_format": "text/md"}
+        assert data == {
+            "id": "page456",
+            "doc_id": "doc123",
+            "name": "RFC Title",
+            "content": "# Body",
+            "date_created": 1784208436171,
+            "date_updated": 1784635013781,
+            "archived": False,
+        }
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_doc_id(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid doc_id"),
+        ):
+            await server.call_tool(
+                "get_doc_page",
+                {"doc_id": "../../workspace/999999999/docs", "page_id": "page456"},
+            )
+
+        assert get_called is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_page_id(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid page_id"),
+        ):
+            await server.call_tool(
+                "get_doc_page",
+                {"doc_id": "doc123", "page_id": "page456?team_id=evil"},
+            )
+
+        assert get_called is False
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_content_format(self) -> None:
+        get_called = False
+
+        async def mock_get(
+            path: str,
+            params: dict[str, str] | list[tuple[str, str]] | None = None,
+        ) -> httpx.Response:
+            nonlocal get_called
+            get_called = True
+            return _mock_response({})
+
+        server = _make_server()
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(ToolError, match="Invalid content_format"),
+        ):
+            await server.call_tool(
+                "get_doc_page",
+                {
+                    "doc_id": "doc123",
+                    "page_id": "page456",
+                    "content_format": "text/html",
+                },
+            )
+
+        assert get_called is False

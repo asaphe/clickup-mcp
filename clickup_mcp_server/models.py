@@ -2,7 +2,7 @@ import json
 
 from pydantic import BaseModel, Field
 
-from clickup_mcp_server.config import TEAM_LABELS, settings
+from clickup_mcp_server.config import DOC_PARENT_TYPE_NAMES, TEAM_LABELS, settings
 
 
 def compact_json(payload: object) -> str:
@@ -81,6 +81,26 @@ class UpdateDocPageResult(BaseModel):
     page_id: str
     name: str | None = None
     url: str
+
+
+class DocInfo(BaseModel):
+    id: str
+    name: str
+    parent_id: str | None
+    parent_type: str | None
+    public: bool
+    date_created: int
+    date_updated: int
+
+
+class DocPage(BaseModel):
+    id: str
+    doc_id: str
+    name: str
+    content: str
+    date_created: int
+    date_updated: int
+    archived: bool
 
 
 class SearchResult(BaseModel):
@@ -244,6 +264,35 @@ def map_task_detail(raw: dict[str, object]) -> TaskDetail:
         date_created=raw.get("date_created"),  # type: ignore[arg-type]
         date_updated=raw.get("date_updated"),  # type: ignore[arg-type]
         date_done=raw.get("date_done"),  # type: ignore[arg-type]
+    )
+
+
+def map_doc_info(raw: dict[str, object]) -> DocInfo:
+    parent = raw.get("parent")
+    parent_id = parent.get("id") if isinstance(parent, dict) else None
+    parent_type_code = parent.get("type") if isinstance(parent, dict) else None
+    return DocInfo(
+        id=str(raw["id"]),
+        name=str(raw.get("name", "")),
+        parent_id=str(parent_id) if parent_id is not None else None,
+        parent_type=DOC_PARENT_TYPE_NAMES.get(parent_type_code)  # type: ignore[arg-type]
+        if isinstance(parent_type_code, int)
+        else None,
+        public=bool(raw.get("public", False)),
+        date_created=int(raw.get("date_created") or 0),  # type: ignore[call-overload]
+        date_updated=int(raw.get("date_updated") or 0),  # type: ignore[call-overload]
+    )
+
+
+def map_doc_page(raw: dict[str, object]) -> DocPage:
+    return DocPage(
+        id=str(raw["id"]),
+        doc_id=str(raw.get("doc_id", "")),
+        name=str(raw.get("name", "")),
+        content=str(raw.get("content", "")),
+        date_created=int(raw.get("date_created") or 0),  # type: ignore[call-overload]
+        date_updated=int(raw.get("date_updated") or 0),  # type: ignore[call-overload]
+        archived=bool(raw.get("archived", False)),
     )
 
 

@@ -9,13 +9,37 @@ from clickup_mcp_server.client import (
     validate_page_id,
 )
 from clickup_mcp_server.config import DOC_PARENT_TYPES, DOC_VISIBILITY_VALUES, settings
-from clickup_mcp_server.models import CreateDocResult, UpdateDocPageResult, compact_json
+from clickup_mcp_server.models import (
+    CreateDocResult,
+    UpdateDocPageResult,
+    compact_json,
+    map_doc_info,
+    map_doc_page,
+)
 
 _CONTENT_FORMATS = ("text/md", "text/plain")
 
 
 def _doc_page_url(doc_id: str, page_id: str) -> str:
     return f"https://app.clickup.com/{settings.workspace_id}/v/dc/{doc_id}/{page_id}"
+
+
+def _flatten_pages(raw: object) -> list[dict[str, object]]:
+    """Recursively flatten the v3 pages response's nested "pages" children.
+
+    The API nests sub-pages under their parent's "pages" key rather than
+    returning a flat array — without this, a multi-page Doc's sub-page
+    content is silently dropped.
+    """
+    if not isinstance(raw, list):
+        return []
+    flat: list[dict[str, object]] = []
+    for page in raw:
+        if not isinstance(page, dict):
+            continue
+        flat.append(page)
+        flat.extend(_flatten_pages(page.get("pages")))
+    return flat
 
 
 def register_doc_tools(server: FastMCP) -> None:
@@ -180,3 +204,108 @@ def register_doc_tools(server: FastMCP) -> None:
                 url=_doc_page_url(doc_id, page_id),
             )
         )
+
+    @server.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def get_doc(doc_id: str) -> str:
+        """Get a Doc's metadata — name, parent location, visibility.
+
+        Use get_doc_page or get_doc_pages to read page content. ClickUp's
+        public API has no Doc-comment endpoint, so this cannot retrieve
+        comment threads on a Doc.
+
+        Args:
+            doc_id: The Doc's ID, as returned by create_doc.
+        """
+        validate_doc_id(doc_id)
+        response = await clickup_client.get(
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            f"/docs/{doc_id}"
+        )
+        data = parse_response(response)
+        return compact_json(map_doc_info(data))
+
+    @server.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def get_doc_pages(
+        doc_id: str,
+        content_format: str = "text/md",
+        max_page_depth: int = -1,
+    ) -> str:
+        """Get every page of a Doc, content included, as a flat list.
+
+        Use this to read a whole multi-page Doc in one call. Sub-pages
+        (nested under a parent page in the ClickUp v3 response) are
+        flattened into the same list alongside their parent, not dropped.
+        For a single known page, get_doc_page avoids fetching pages you
+        don't need.
+
+        Args:
+            doc_id: The Doc's ID, as returned by create_doc.
+            content_format: "text/md" (default) or "text/plain".
+            max_page_depth: How many levels of nested sub-pages to include.
+                -1 (default) returns every page.
+        """
+        validate_doc_id(doc_id)
+        if content_format not in _CONTENT_FORMATS:
+            raise ValueError(
+                f"Invalid content_format {content_format!r}: must be one of "
+                f"{_CONTENT_FORMATS}."
+            )
+
+        response = await clickup_client.get(
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            f"/docs/{doc_id}/pages",
+            params={
+                "content_format": content_format,
+                "max_page_depth": str(max_page_depth),
+            },
+        )
+        data = parse_response(response)
+        pages = [map_doc_page(p) for p in _flatten_pages(data)]
+        return compact_json([p.model_dump(exclude_none=True) for p in pages])
+
+    @server.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            openWorldHint=False,
+        )
+    )
+    async def get_doc_page(
+        doc_id: str,
+        page_id: str,
+        content_format: str = "text/md",
+    ) -> str:
+        """Get a single Doc page's content.
+
+        Mirrors update_doc_page's doc_id/page_id pair — most useful when you
+        already have both IDs from a prior create_doc/update_doc_page call.
+
+        Args:
+            doc_id: The Doc's ID, as returned by create_doc.
+            page_id: The page's ID, as returned by create_doc.
+            content_format: "text/md" (default) or "text/plain".
+        """
+        validate_doc_id(doc_id)
+        validate_page_id(page_id)
+        if content_format not in _CONTENT_FORMATS:
+            raise ValueError(
+                f"Invalid content_format {content_format!r}: must be one of "
+                f"{_CONTENT_FORMATS}."
+            )
+
+        response = await clickup_client.get(
+            f"{settings.api_v3_base_url}/workspaces/{settings.workspace_id}"
+            f"/docs/{doc_id}/pages/{page_id}",
+            params={"content_format": content_format},
+        )
+        data = parse_response(response)
+        return compact_json(map_doc_page(data))

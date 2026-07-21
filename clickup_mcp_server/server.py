@@ -27,6 +27,11 @@ Common workflows:
 - Sprint report: get_sprint_report (tasks by assignee, status counts, at-risk flags)
 - Shareable report/RFC: create_doc (native ClickUp Doc with real markdown tables,
   not a task description — sharing/visibility is a separate manual step)
+- Correct a published Doc: update_doc_page (edits the existing page in place —
+  the v3 Docs API has no delete endpoint, so re-running create_doc orphans
+  the old Doc instead of fixing it)
+- Read a published Doc: get_doc_page (single page) / get_doc_pages (whole Doc)
+  — content only, Doc comments still require the browser
 """
 
 mcp_server = FastMCP("clickup", instructions=INSTRUCTIONS)
