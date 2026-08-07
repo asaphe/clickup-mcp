@@ -1,0 +1,229 @@
+# ClickUp MCP Server
+
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 25 tools.
+
+## Features
+
+- **Task management** — create, update, search, and bulk-edit tasks
+- **Sprint tracking** — auto-detect current sprint, list sprint tasks, filter by assignee/status
+- **Reporting** — sprint reports with at-risk detection, PR link extraction, status summaries
+- **Workspace navigation** — browse spaces, folders, lists; resolve custom task IDs
+- **Comments** — read and write task comments
+- **Docs** — create a native ClickUp Doc with real markdown tables/headers, unlike a task description
+
+## Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (`brew install uv`)
+- A ClickUp personal API token
+
+## Quick Start
+
+```bash
+uv tool install "clickup-mcp-server @ git+https://github.com/asaphe/clickup-mcp.git"
+clickup-mcp-server setup --code
+```
+
+The setup script walks you through:
+1. Token retrieval (1Password integration or manual paste)
+2. Workspace configuration (workspace ID required, sprint/team IDs optional)
+3. Client registration (Claude Code, Claude Desktop, or both)
+4. Automatic restart of Claude Desktop if running
+
+To configure Claude Desktop instead, run:
+
+```bash
+clickup-mcp-server setup --desktop
+```
+
+To configure both clients:
+
+```bash
+clickup-mcp-server setup --both
+```
+
+### Alternative: Run from a Local Clone
+
+Use this flow when you want to hack on the server itself:
+
+```bash
+git clone https://github.com/asaphe/clickup-mcp.git
+cd clickup-mcp
+uv sync --dev
+uv tool install --editable .
+python3 setup_mcp.py
+```
+
+This uses the same setup wizard, but runs it from the repo root layout used by this public package.
+Run `uv tool install --editable .` first: the setup wizard only installs
+`clickup-mcp-server` via `uv tool install` when it isn't already on your PATH,
+so an editable install done beforehand is preserved instead of being replaced
+by the published GitHub version.
+
+## Configuration
+
+All configuration is via environment variables. Only `CLICKUP_API_TOKEN` and `WORKSPACE_ID` are required — the rest enable optional features.
+
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `CLICKUP_API_TOKEN` | Personal API token from https://app.clickup.com/settings/apps |
+| `WORKSPACE_ID` | Your ClickUp workspace (team) ID |
+
+### Optional — Sprint Detection
+
+| Variable | Description |
+|----------|-------------|
+| `DEVELOPMENT_SPACE_ID` | Space ID containing your sprints. Required for sprint tools. |
+| `SPRINTS_FOLDER_ID` | Folder ID within the space that holds sprint lists. Required for sprint tools. |
+
+### Optional — Team Labels
+
+| Variable | Description |
+|----------|-------------|
+| `COMPONENT_TEAM_FIELD_ID` | Custom field ID for Component/Team labels |
+| `CLICKUP_TEAM_LABELS` | JSON mapping of team names to label IDs (see below) |
+
+Example `CLICKUP_TEAM_LABELS`:
+```json
+{"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
+```
+
+### Optional — Tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_BASE_URL` | `https://api.clickup.com/api/v2` | ClickUp API base URL |
+| `REQUEST_TIMEOUT` | `15.0` | HTTP request timeout in seconds |
+| `MAX_RETRIES` | `3` | Max retry attempts for failed/rate-limited requests |
+
+### Finding Your IDs
+
+- **Workspace ID**: Settings → Workspaces → look at the URL or API response
+- **Space ID**: Click on a Space → the ID is in the URL (`/s/{space_id}/...`)
+- **Folder ID**: Click on a Folder → inspect the URL or use the `get_workspace_hierarchy` tool
+- **Custom Field ID**: Use the ClickUp API: `GET /list/{list_id}/field`
+- **Team Label IDs**: Use the ClickUp API: `GET /list/{list_id}/field` → find the labels dropdown field → extract option IDs
+
+## Tools
+
+28 tools across 6 categories:
+
+### Sprint Management
+| Tool | Description |
+|------|-------------|
+| `get_current_sprint` | Auto-detect the active sprint by date |
+| `refresh_sprint_cache` | Force-refresh the cached sprint |
+| `get_sprint_tasks` | List tasks in the current sprint (filter by assignee/status) |
+
+### Task Management
+| Tool | Description |
+|------|-------------|
+| `get_task` | Get task details by ID (DEV-1234 or UUID) |
+| `create_task` | Create a task in any list |
+| `create_sprint_task` | Create a task in the current sprint (auto-assign, team, points) |
+| `update_task` | Update status, assignee, description, points, dates |
+| `search_tasks` | Search tasks by name |
+| `get_my_tasks` | Get tasks assigned to the current user |
+| `get_list_tasks` | Get all tasks in a specific list |
+| `move_task_to_list` | Move a task to a different list |
+| `bulk_update_tasks` | Batch-update status/team/assignee across multiple tasks |
+| `ensure_task_fields` | Check and fix missing fields (assignee, team, points) |
+| `delete_task` | Delete a task permanently |
+
+### Comments
+| Tool | Description |
+|------|-------------|
+| `add_task_comment` | Post a comment on a task |
+| `get_task_comments` | Retrieve comments from a task |
+
+### Reporting
+| Tool | Description |
+|------|-------------|
+| `get_sprint_report` | Sprint report by assignee with status counts and at-risk flags |
+
+### Workspace
+| Tool | Description |
+|------|-------------|
+| `get_current_user` | Show the authenticated user |
+| `get_workspace_hierarchy` | Browse spaces, folders, and lists |
+| `task_url` | Get the ClickUp URL for a task |
+| `add_tag_to_task` | Add a tag to a task |
+| `list_teams` | List available team labels |
+| `check_team_labels` | Check configured team labels against live ClickUp options |
+
+### Docs
+| Tool | Description |
+|------|-------------|
+| `create_doc` | Create a native ClickUp Doc (v3 API) with one page of markdown content; returns its URL. Create-only, PRIVATE by default — sharing is a manual follow-up in the ClickUp UI. |
+| `update_doc_page` | Overwrite an existing Doc page's content in place (replace-only), with an optional retitle; returns its URL. |
+| `get_doc` | Get a Doc's metadata (name, parent location, visibility). |
+| `get_doc_pages` | Get every page of a Doc, content included, as a flat list — sub-pages are flattened in, not dropped. |
+| `get_doc_page` | Get a single page's content by `doc_id`/`page_id`. |
+
+ClickUp's v3 Docs API has no DELETE endpoint for Docs or Pages — confirmed against
+developer.clickup.com's own `llms.txt` index and public OpenAPI spec, and empirically
+(a live `DELETE` call against a real doc returned `405 Method Not Allowed`, not `404`,
+meaning the route exists but the verb is rejected). So there's no `delete_doc` tool, and
+`update_doc_page` is replace-only by design: the client retries transport errors,
+including a timeout that can fire after the server already applied the edit — a replace
+is idempotent under retry, but append/prepend would silently double-apply.
+
+ClickUp's public API also has no Doc/page comment endpoint (only task/list/view
+comments exist) — reading a Doc's comment panel still requires the browser.
+
+## Usage Examples
+
+In Claude Code or Claude Desktop, just ask naturally:
+
+- "show my tasks"
+- "sprint report for backend"
+- "create a task for fixing the login bug"
+- "mark DEV-1234 as done"
+- "what's the current sprint?"
+- "show unassigned tasks in the sprint"
+- "write this up as a doc so the tables render properly"
+- "read that doc back to me"
+
+## Key Patterns
+
+- **Task IDs**: Both custom IDs (`DEV-1234`, `PROJ-456`) and UUIDs are accepted everywhere
+- **"me" as assignee**: Resolved automatically from the API token
+- **Sprint auto-detection**: Current sprint is detected by date and cached per session
+- **Rate limiting**: Automatic retry with exponential backoff on 429 responses
+- **Concurrent comment fetching**: Sprint reports fetch PR links from comments with bounded concurrency
+
+## Coexistence with Built-in ClickUp MCP
+
+This server works alongside the official ClickUp MCP connector. The built-in handles features not covered here (time tracking, chat, and a Doc's comment panel — ClickUp's public API has no Doc-comment endpoint). Doc create/read/update are covered here; deletion isn't possible via either server, since the v3 Docs API exposes no delete endpoint. You can register both, though having both may cause tool-selection ambiguity for overlapping operations.
+
+## Development
+
+```bash
+uv sync --dev
+uv run pytest
+uv run mypy clickup_mcp_server
+uv run ruff check .
+```
+
+## Architecture
+
+```
+clickup_mcp_server/
+  server.py       — FastMCP server entry point and instructions
+  client.py       — Async HTTP client with retry and rate-limit handling
+  config.py       — Settings (env var based, no hardcoded IDs)
+  models.py       — Pydantic models for API responses
+  tools/
+    sprint.py     — Sprint detection and caching
+    tasks.py      — Task CRUD, search, bulk operations
+    comments.py   — Comment read/write
+    reporting.py  — Sprint reports with at-risk detection
+    workspace.py  — User info, hierarchy, tags
+    docs.py       — Doc create/read/update (v3 API)
+```
+
+## License
+
+MIT
