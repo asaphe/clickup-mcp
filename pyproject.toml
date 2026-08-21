@@ -15,9 +15,9 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-httpx>=0.35.0",
-    "mypy>=2.3.0",
+    "mypy>=2.3.1",
     "deptry>=0.25.1",
-    "ruff>=0.16.1",
+    "ruff>=0.16.3",
 ]
 
 [tool.pytest.ini_options]
