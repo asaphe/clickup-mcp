@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "MCP server for ClickUp task management"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp==2.0.0",
+    "mcp==2.1.1",
     "httpx>=0.28.0",
-    "pydantic>=2.0",
+    "pydantic>=2.13.5",
     "pydantic-settings==2.15.0",
 ]
 
@@ -15,9 +15,9 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-httpx>=0.35.0",
-    "mypy>=2.3.0",
+    "mypy>=2.3.1",
     "deptry>=0.25.1",
-    "ruff>=0.16.1",
+    "ruff>=0.16.5",
 ]
 
 [tool.pytest.ini_options]
