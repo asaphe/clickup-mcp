@@ -1,4 +1,5 @@
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import (
@@ -88,17 +89,17 @@ def register_doc_tools(server: MCPServer) -> None:
             visibility: "PRIVATE" (default), "PUBLIC", "PERSONAL", or "HIDDEN".
         """
         if parent_type not in DOC_PARENT_TYPES:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid parent_type {parent_type!r}: must be one of "
                 f"{sorted(DOC_PARENT_TYPES)}."
             )
         if content_format not in _CONTENT_FORMATS:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid content_format {content_format!r}: must be one of "
                 f"{_CONTENT_FORMATS}."
             )
         if visibility not in DOC_VISIBILITY_VALUES:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid visibility {visibility!r}: must be one of "
                 f"{DOC_VISIBILITY_VALUES}."
             )
@@ -176,7 +177,7 @@ def register_doc_tools(server: MCPServer) -> None:
         validate_doc_id(doc_id)
         validate_page_id(page_id)
         if content_format not in _CONTENT_FORMATS:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid content_format {content_format!r}: must be one of "
                 f"{_CONTENT_FORMATS}."
             )
@@ -256,7 +257,7 @@ def register_doc_tools(server: MCPServer) -> None:
         """
         validate_doc_id(doc_id)
         if content_format not in _CONTENT_FORMATS:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid content_format {content_format!r}: must be one of "
                 f"{_CONTENT_FORMATS}."
             )
@@ -297,7 +298,7 @@ def register_doc_tools(server: MCPServer) -> None:
         validate_doc_id(doc_id)
         validate_page_id(page_id)
         if content_format not in _CONTENT_FORMATS:
-            raise ValueError(
+            raise ToolError(
                 f"Invalid content_format {content_format!r}: must be one of "
                 f"{_CONTENT_FORMATS}."
             )

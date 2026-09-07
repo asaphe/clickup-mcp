@@ -1,6 +1,7 @@
 import asyncio
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import (
@@ -67,7 +68,7 @@ async def _fetch_live_team_label_options(space_id: str) -> dict[str, str]:
             for option in options_raw
             if isinstance(option, dict) and "id" in option
         }
-    raise ValueError(
+    raise ToolError(
         f"No custom field with id {settings.component_team_field_id!r} exists in "
         f"space {space_id}. Returning an empty option set would report every "
         "configured label as stale."

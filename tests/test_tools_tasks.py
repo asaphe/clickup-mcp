@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from tests.conftest import SAMPLE_TASK_RAW
 from tests.helpers import get_tool_text
@@ -966,7 +967,7 @@ class TestDateConversion:
 
         # Returning the raw string would reach ClickUp as a date filter.
         for bad in ("", "last tuesday", "2024-13-45"):
-            with pytest.raises(ValueError, match="ISO date or Unix millis"):
+            with pytest.raises(ToolError, match="ISO date or Unix millis"):
                 _to_millis(bad)
 
 

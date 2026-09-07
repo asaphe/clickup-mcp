@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import clickup_client, parse_response
@@ -57,11 +58,11 @@ async def _fetch_tasks_by_tags(tags: list[str]) -> list[TaskSummary]:
 
 async def _fetch_sprint() -> SprintInfo:
     if not settings.development_space_id:
-        raise RuntimeError(
+        raise ToolError(
             "DEVELOPMENT_SPACE_ID is not configured. Set it to use sprint detection."
         )
     if not settings.sprints_folder_id:
-        raise RuntimeError(
+        raise ToolError(
             "SPRINTS_FOLDER_ID is not configured. Set it to use sprint detection."
         )
 
@@ -84,7 +85,7 @@ async def _fetch_sprint() -> SprintInfo:
             break
 
     if not sprints_folder:
-        raise RuntimeError(f"Sprints folder {settings.sprints_folder_id} not found")
+        raise ToolError(f"Sprints folder {settings.sprints_folder_id} not found")
 
     best_list = None
     best_start = 0
@@ -133,7 +134,7 @@ async def _fetch_sprint() -> SprintInfo:
         or not best_list.get("start_date")
         or not best_list.get("due_date")
     ):
-        raise RuntimeError("No sprint lists found in sprints folder")
+        raise ToolError("No sprint lists found in sprints folder")
 
     start_dt = datetime.fromtimestamp(int(best_list["start_date"]) / 1000, tz=UTC)
     end_dt = datetime.fromtimestamp(int(best_list["due_date"]) / 1000, tz=UTC)
