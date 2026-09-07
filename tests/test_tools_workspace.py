@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from tests.conftest import SAMPLE_FOLDER_RAW, SAMPLE_USER_RAW
 from tests.helpers import get_tool_text
@@ -277,7 +278,7 @@ class TestLiveTeamLabelOptions:
         # Returning {} here would report every configured label as stale.
         with (
             patch.object(clickup_client, "get", side_effect=mock_get),
-            pytest.raises(ValueError, match="No custom field"),
+            pytest.raises(ToolError, match="No custom field"),
         ):
             await _fetch_live_team_label_options("222222222")
 

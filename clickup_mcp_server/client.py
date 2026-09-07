@@ -4,6 +4,7 @@ import re
 from urllib.parse import quote
 
 import httpx
+from mcp.server.mcpserver.exceptions import ToolError
 
 from clickup_mcp_server.config import settings
 
@@ -24,7 +25,7 @@ def is_custom_task_id(task_id: str) -> bool:
 def _validate_safe_id(value: str, label: str) -> str:
     """Reject IDs that could redirect a ClickUp API path."""
     if not _SAFE_ID_RE.match(value):
-        raise ValueError(
+        raise ToolError(
             f"Invalid {label} {value!r}: must contain only letters, digits, "
             "hyphens, or underscores."
         )
@@ -40,7 +41,7 @@ def _validate_numeric_id(value: str, label: str) -> str:
     space/list/folder/workspace IDs are all numeric, so a digits-only
     allowlist rejects every path-traversal character outright."""
     if not _NUMERIC_ID_RE.match(value):
-        raise ValueError(f"Invalid {label} {value!r}: must contain only digits.")
+        raise ToolError(f"Invalid {label} {value!r}: must contain only digits.")
     return value
 
 
@@ -68,7 +69,8 @@ def encode_path_segment(value: object) -> str:
     return quote(str(value), safe="")
 
 
-class ClickUpAPIError(Exception):
+# ToolError is the only exception mcp>=2.1 forwards to the caller unmasked.
+class ClickUpAPIError(ToolError):
     def __init__(self, status_code: int, message: str) -> None:
         self.status_code = status_code
         self.message = message

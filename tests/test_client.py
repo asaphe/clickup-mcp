@@ -1,4 +1,5 @@
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from clickup_mcp_server.client import (
     ClickUpAPIError,
@@ -51,7 +52,7 @@ class TestValidateTaskId:
 
     @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
     def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid task_id"):
+        with pytest.raises(ToolError, match="Invalid task_id"):
             validate_task_id(malicious_id)
 
 
@@ -64,7 +65,7 @@ class TestValidateListId:
         ["123/../../task/x", "123?x=y", "123#fragment", "abc", "", "123 456"],
     )
     def test_rejects_non_numeric_id(self, malicious_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid list_id"):
+        with pytest.raises(ToolError, match="Invalid list_id"):
             validate_list_id(malicious_id)
 
 
@@ -77,7 +78,7 @@ class TestValidateSpaceId:
         ["123/../../field", "123?x=y", "123#fragment", "abc", "", "123 456"],
     )
     def test_rejects_non_numeric_id(self, malicious_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid space_id"):
+        with pytest.raises(ToolError, match="Invalid space_id"):
             validate_space_id(malicious_id)
 
 
@@ -87,7 +88,7 @@ class TestValidateDocId:
 
     @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
     def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid doc_id"):
+        with pytest.raises(ToolError, match="Invalid doc_id"):
             validate_doc_id(malicious_id)
 
 
@@ -97,7 +98,7 @@ class TestValidatePageId:
 
     @pytest.mark.parametrize("malicious_id", _SAFE_ID_TRAVERSAL_PAYLOADS)
     def test_rejects_path_altering_characters(self, malicious_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid page_id"):
+        with pytest.raises(ToolError, match="Invalid page_id"):
             validate_page_id(malicious_id)
 
 

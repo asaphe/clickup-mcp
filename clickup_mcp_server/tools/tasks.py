@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import (
@@ -35,8 +36,8 @@ def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
     if not label_id:
         if TEAM_LABELS:
             valid = ", ".join(sorted(TEAM_LABELS))
-            raise ValueError(f"Unknown team {team!r}. Valid: {valid}.")
-        raise ValueError(
+            raise ToolError(f"Unknown team {team!r}. Valid: {valid}.")
+        raise ToolError(
             f"Unknown team {team!r}. Configure CLICKUP_TEAM_LABELS before using "
             "team labels."
         )
@@ -751,9 +752,7 @@ def _to_millis(value: str) -> str:
         # fromisoformat rejects a date-only value with a Z suffix; the rewrite widens it
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))  # noqa: FURB162
     except ValueError as exc:
-        raise ValueError(
-            f"Expected an ISO date or Unix millis, got {value!r}."
-        ) from exc
+        raise ToolError(f"Expected an ISO date or Unix millis, got {value!r}.") from exc
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return str(int(dt.timestamp() * 1000))
