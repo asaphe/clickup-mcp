@@ -12,6 +12,9 @@ Open an issue describing:
 - Steps to reproduce
 - Your environment (OS, Python version, uv version, Claude Code/Desktop version)
 
+For a security problem, don't open a public issue — report it privately as
+described in [SECURITY.md](SECURITY.md).
+
 ### Submitting Changes
 
 1. Fork the repository
