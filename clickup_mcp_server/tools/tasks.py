@@ -50,9 +50,10 @@ def _resolve_task_type(task_type: str) -> int:
         if TASK_TYPES:
             valid = ", ".join(sorted(TASK_TYPES))
             raise ToolError(f"Unknown task_type {task_type!r}. Valid: {valid}.")
+        # A malformed mapping loads as empty, so this message must not claim the variable is unset.
         raise ToolError(
-            f"Unknown task_type {task_type!r}. Configure CLICKUP_TASK_TYPES before "
-            "using task types."
+            f"Unknown task_type {task_type!r}. CLICKUP_TASK_TYPES is unset or is not a "
+            'JSON object of task type names to integer IDs, e.g. {"bug": 1234}.'
         )
     return item_id
 

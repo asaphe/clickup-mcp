@@ -324,7 +324,9 @@ class TestCreateTask:
 
         with (
             patch.object(clickup_client, "post", side_effect=mock_post),
-            pytest.raises(ToolError, match="Configure CLICKUP_TASK_TYPES"),
+            pytest.raises(
+                ToolError, match="CLICKUP_TASK_TYPES is unset or is not a JSON object"
+            ),
         ):
             await server.call_tool(
                 "create_task",
