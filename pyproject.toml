@@ -17,7 +17,7 @@ dev = [
     "pytest-httpx>=0.35.0",
     "mypy>=2.3.1",
     "deptry>=0.25.1",
-    "ruff>=0.16.5",
+    "ruff>=0.16.7",
 ]
 
 [tool.pytest.ini_options]
