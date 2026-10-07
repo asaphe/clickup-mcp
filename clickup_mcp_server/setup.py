@@ -529,6 +529,10 @@ _FIELD_HINT = (
     "Use the ClickUp API: GET /list/{id}/field"
 )
 _LABELS_HINT = 'JSON mapping: {"backend": "uuid-1", "frontend": "uuid-2"}'
+_TASK_TYPES_HINT = (
+    'JSON mapping: {"bug": 1234, "epic": 5678}. '
+    "Use the ClickUp API: GET /team/{workspace_id}/custom_item"
+)
 
 
 def collect_workspace_config() -> dict[str, str]:
@@ -580,6 +584,17 @@ def collect_workspace_config() -> dict[str, str]:
         if labels:
             env_vars["CLICKUP_TEAM_LABELS"] = labels
             ok("Team labels configured.")
+    print()
+
+    print(f"  {bold('Optional: Task types')}")
+    print("  Press Enter to skip (the task_type parameter will be disabled).")
+    print()
+
+    print(f"    {_TASK_TYPES_HINT}")
+    task_types = input("  CLICKUP_TASK_TYPES [skip]: ").strip()
+    if task_types:
+        env_vars["CLICKUP_TASK_TYPES"] = task_types
+        ok("Task types configured.")
     print()
 
     return env_vars

@@ -15,7 +15,7 @@ from clickup_mcp_server.client import (
     validate_list_id,
     validate_task_id,
 )
-from clickup_mcp_server.config import TEAM_LABELS, settings
+from clickup_mcp_server.config import TASK_TYPES, TEAM_LABELS, settings
 from clickup_mcp_server.models import (
     BulkUpdateResult,
     CreateTaskResult,
@@ -42,6 +42,19 @@ def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
             "team labels."
         )
     return [{"id": settings.component_team_field_id, "value": [label_id]}]
+
+
+def _resolve_task_type(task_type: str) -> int:
+    item_id = TASK_TYPES.get(task_type.lower())
+    if item_id is None:
+        if TASK_TYPES:
+            valid = ", ".join(sorted(TASK_TYPES))
+            raise ToolError(f"Unknown task_type {task_type!r}. Valid: {valid}.")
+        raise ToolError(
+            f"Unknown task_type {task_type!r}. Configure CLICKUP_TASK_TYPES before "
+            "using task types."
+        )
+    return item_id
 
 
 async def _set_custom_field(task_uuid: str, field_id: object, value: object) -> None:
@@ -124,6 +137,7 @@ def register_task_tools(server: MCPServer) -> None:
         team: str | None = None,
         parent_task_id: str | None = None,
         priority: int | None = None,
+        task_type: str | None = None,
     ) -> str:
         """Create a new task in a specific list.
 
@@ -145,9 +159,13 @@ def register_task_tools(server: MCPServer) -> None:
             parent_task_id: Parent task ID for creating subtasks. Its list wins over
                 list_id when the two differ.
             priority: 1=urgent, 2=high, 3=normal, 4=low.
+            task_type: Task type name from CLICKUP_TASK_TYPES (e.g. "bug"). Omitted
+                unless given, so ClickUp creates its default type.
         """
         validate_list_id(list_id)
         body: dict[str, object] = {"name": name}
+        if task_type is not None:
+            body["custom_item_id"] = _resolve_task_type(task_type)
         if status is not None:
             body["status"] = status
         if description:
@@ -211,6 +229,7 @@ def register_task_tools(server: MCPServer) -> None:
         assign_to_me: bool = True,
         parent_task_id: str | None = None,
         status: str | None = None,
+        task_type: str | None = None,
     ) -> str:
         """Create a task in the current sprint with sensible defaults.
 
@@ -231,6 +250,8 @@ def register_task_tools(server: MCPServer) -> None:
             parent_task_id: Parent task ID (custom like DEV-1234 or UUID) for creating subtasks.
             status: Initial status. Omitted unless given, so the sprint list's own
                 default status applies. Pass an explicit value to override it.
+            task_type: Task type name from CLICKUP_TASK_TYPES (e.g. "bug"). Omitted
+                unless given, so ClickUp creates its default type.
         """
         sprint = await get_current_sprint_cached()
         assignee_id = None
@@ -247,6 +268,7 @@ def register_task_tools(server: MCPServer) -> None:
             points=points,
             team=team,
             parent_task_id=parent_task_id,
+            task_type=task_type,
         )
 
     @server.tool(
@@ -266,6 +288,7 @@ def register_task_tools(server: MCPServer) -> None:
         assignee_add: int | None = None,
         assignee_remove: int | None = None,
         parent_task_id: str | None = None,
+        task_type: str | None = None,
     ) -> str:
         """Update fields on a task. Only specified fields are changed.
 
@@ -282,10 +305,14 @@ def register_task_tools(server: MCPServer) -> None:
             parent_task_id: Parent task ID to nest this task under (custom like DEV-1234
                 or UUID), including re-parenting a task that has never had a parent.
                 Setting this also moves the task to the parent's list.
+            task_type: Task type name from CLICKUP_TASK_TYPES (e.g. "bug").
         """
+        item_id = _resolve_task_type(task_type) if task_type is not None else None
         resolved = await resolve_task_id(task_id)
         body: dict[str, object] = {}
 
+        if item_id is not None:
+            body["custom_item_id"] = item_id
         if name is not None:
             body["name"] = name
         if status is not None:
@@ -538,6 +565,7 @@ def register_task_tools(server: MCPServer) -> None:
         assignee_add: int | None = None,
         team: str | None = None,
         points: float | None = None,
+        task_type: str | None = None,
     ) -> str:
         """Update multiple tasks at once. Verify the task_ids list before calling.
 
@@ -550,11 +578,13 @@ def register_task_tools(server: MCPServer) -> None:
             assignee_add: Add assignee (user ID) to all tasks.
             team: Set Component/Team label on all tasks.
             points: Set story points on all tasks.
+            task_type: Set task type (name from CLICKUP_TASK_TYPES) on all tasks.
         """
         if not task_ids:
             return "Error: task_ids list is empty."
 
         custom_fields = _build_custom_field_payload(team) if team else None
+        item_id = _resolve_task_type(task_type) if task_type else None
         updated: list[str] = []
         failed: list[dict[str, str]] = []
 
@@ -568,6 +598,8 @@ def register_task_tools(server: MCPServer) -> None:
                     body["points"] = points
                 if assignee_add is not None:
                     body["assignees"] = {"add": [assignee_add]}
+                if item_id is not None:
+                    body["custom_item_id"] = item_id
                 if body:
                     response = await clickup_client.put(
                         f"/task/{resolved}", json_data=body

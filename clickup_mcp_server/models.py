@@ -2,7 +2,12 @@ import json
 
 from pydantic import BaseModel, Field
 
-from clickup_mcp_server.config import DOC_PARENT_TYPE_NAMES, TEAM_LABELS, settings
+from clickup_mcp_server.config import (
+    DOC_PARENT_TYPE_NAMES,
+    TASK_TYPE_NAMES,
+    TEAM_LABELS,
+    settings,
+)
 
 
 def compact_json(payload: object) -> str:
@@ -51,6 +56,7 @@ class TaskDetail(TaskSummary):
     parent_custom_id: str | None = None
     subtasks: list[TaskSummary] = Field(default_factory=list)
     team: str | None = None
+    task_type: str | None = None
 
 
 class TaskComment(BaseModel):
@@ -219,6 +225,8 @@ def map_task_detail(raw: dict[str, object]) -> TaskDetail:
                         (k for k, v in TEAM_LABELS.items() if v == label_id), None
                     )
 
+    item_id = raw.get("custom_item_id")
+
     assignees_raw = raw.get("assignees", [])
     assignees = (
         [a["username"] for a in assignees_raw if isinstance(a, dict)]
@@ -261,6 +269,7 @@ def map_task_detail(raw: dict[str, object]) -> TaskDetail:
         else None,
         subtasks=subtasks,
         team=team,
+        task_type=TASK_TYPE_NAMES.get(item_id) if isinstance(item_id, int) else None,
         date_created=raw.get("date_created"),  # type: ignore[arg-type]
         date_updated=raw.get("date_updated"),  # type: ignore[arg-type]
         date_done=raw.get("date_done"),  # type: ignore[arg-type]

@@ -245,6 +245,115 @@ class TestCreateTask:
             )
 
     @pytest.mark.asyncio
+    async def test_create_task_sets_task_type(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234, "epic": 5678}
+        )
+        captured_body: dict[str, object] = {}
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with patch.object(clickup_client, "post", side_effect=mock_post):
+            await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "task_type": "Bug"},
+            )
+
+        assert captured_body["custom_item_id"] == 1234
+
+    @pytest.mark.asyncio
+    async def test_create_task_omits_task_type_by_default(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        captured_body: dict[str, object] = {}
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with patch.object(clickup_client, "post", side_effect=mock_post):
+            await server.call_tool("create_task", {"name": "Test", "list_id": "123"})
+
+        assert "custom_item_id" not in captured_body
+
+    @pytest.mark.asyncio
+    async def test_create_task_task_type_unconfigured_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {})
+        post_called = False
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal post_called
+            post_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            pytest.raises(ToolError, match="Configure CLICKUP_TASK_TYPES"),
+        ):
+            await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "task_type": "bug"},
+            )
+
+        assert post_called is False
+
+    @pytest.mark.asyncio
+    async def test_create_task_unknown_task_type_lists_valid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234, "epic": 5678}
+        )
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with pytest.raises(ToolError, match="Valid: bug, epic"):
+            await server.call_tool(
+                "create_task",
+                {"name": "Test", "list_id": "123", "task_type": "story"},
+            )
+
+    @pytest.mark.asyncio
     async def test_create_task_uses_parent_list_when_different(self) -> None:
         from mcp.server.mcpserver import MCPServer
 
@@ -474,6 +583,44 @@ class TestUpdateTask:
 
         assert captured_body["parent"] == "resolved-TASK-1000"
         assert resolve_calls == ["TASK-9999", "TASK-1000"]
+
+    @pytest.mark.asyncio
+    async def test_update_task_sets_task_type(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234})
+        monkeypatch.setattr("clickup_mcp_server.models.TASK_TYPE_NAMES", {1234: "bug"})
+        captured_body: dict[str, object] = {}
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response({**SAMPLE_TASK_RAW, "custom_item_id": 1234})
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "update_task", {"task_id": "TASK-9999", "task_type": "bug"}
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert captured_body == {"custom_item_id": 1234}
+        assert data["task_type"] == "bug"
 
     @pytest.mark.asyncio
     async def test_update_task_rejects_path_altering_id(self) -> None:
@@ -725,6 +872,79 @@ class TestBulkUpdateTasks:
             )
 
         assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_bulk_invalid_task_type_aborts_before_any_update(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234})
+        put_called = False
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            nonlocal put_called
+            put_called = True
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            pytest.raises(ToolError, match="Unknown task_type"),
+        ):
+            await server.call_tool(
+                "bulk_update_tasks",
+                {"task_ids": ["TASK-1", "TASK-2"], "task_type": "nonsense"},
+            )
+
+        assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_bulk_sets_task_type_on_each(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234})
+        bodies: list[dict[str, object]] = []
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            bodies.append(dict(json_data or {}))
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def mock_resolve(task_id: str) -> str:
+            return f"resolved-{task_id}"
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                side_effect=mock_resolve,
+            ),
+        ):
+            result = await server.call_tool(
+                "bulk_update_tasks",
+                {"task_ids": ["TASK-1", "TASK-2"], "task_type": "bug"},
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert bodies == [{"custom_item_id": 1234}, {"custom_item_id": 1234}]
+        assert data["updated"] == ["TASK-1", "TASK-2"]
 
     @pytest.mark.asyncio
     async def test_bulk_assignee_add_zero_is_applied(
@@ -1049,6 +1269,47 @@ class TestCreateSprintTask:
             )
 
         assert captured_body["status"] == "todo"
+
+    @pytest.mark.asyncio
+    async def test_create_sprint_task_forwards_task_type(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools import tasks as tasks_mod
+
+        monkeypatch.setattr(tasks_mod, "TASK_TYPES", {"bug": 1234})
+        captured_body: dict[str, object] = {}
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def mock_sprint() -> SimpleNamespace:
+            return SimpleNamespace(list_id="901")
+
+        async def mock_user() -> SimpleNamespace:
+            return SimpleNamespace(id=42)
+
+        server = MCPServer("test")
+        tasks_mod.register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            patch.object(tasks_mod, "get_current_sprint_cached", new=mock_sprint),
+            patch.object(tasks_mod, "get_current_user_cached", new=mock_user),
+        ):
+            await server.call_tool(
+                "create_sprint_task", {"name": "Test", "task_type": "bug"}
+            )
+
+        assert captured_body["custom_item_id"] == 1234
 
 
 class TestGetMyTasks:

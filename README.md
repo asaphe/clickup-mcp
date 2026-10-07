@@ -90,6 +90,19 @@ Example `CLICKUP_TEAM_LABELS`:
 {"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
 ```
 
+### Optional — Task Types
+
+| Variable | Description |
+|----------|-------------|
+| `CLICKUP_TASK_TYPES` | JSON mapping of task type names to custom task type IDs (see below). Enables the `task_type` parameter on `create_task`, `create_sprint_task`, `update_task` and `bulk_update_tasks`, and the `task_type` field in task details. |
+
+Example `CLICKUP_TASK_TYPES`:
+```json
+{"task": 0, "bug": 1234, "epic": 5678}
+```
+
+Names are matched case-insensitively. Without this variable, tasks are created with ClickUp's default type and `task_type` is rejected.
+
 ### Optional — Tuning
 
 | Variable | Default | Description |
@@ -105,6 +118,7 @@ Example `CLICKUP_TEAM_LABELS`:
 - **Folder ID**: Click on a Folder → inspect the URL or use the `get_workspace_hierarchy` tool
 - **Custom Field ID**: Use the ClickUp API: `GET /list/{list_id}/field`
 - **Team Label IDs**: Use the ClickUp API: `GET /list/{list_id}/field` → find the labels dropdown field → extract option IDs
+- **Task Type IDs**: Use the ClickUp API: `GET /team/{workspace_id}/custom_item` → each custom task type's `id`
 
 ## Tools
 

@@ -51,3 +51,28 @@ def _load_team_labels() -> dict[str, str]:
 
 
 TEAM_LABELS: dict[str, str] = _load_team_labels()
+
+
+def _as_item_id(value: object) -> int:
+    # bool is an int subclass and int(1.5) truncates — neither is a type id
+    if isinstance(value, bool) or not isinstance(value, int | str):
+        raise TypeError(f"not an integer id: {value!r}")
+    return int(value)
+
+
+def _load_task_types() -> dict[str, int]:
+    """Task type names -> ClickUp custom_item_id, from GET /team/{id}/custom_item."""
+    raw = os.environ.get("CLICKUP_TASK_TYPES", "")
+    if not raw:
+        return {}
+    try:
+        types = json.loads(raw)
+        if isinstance(types, dict):
+            return {str(k).lower(): _as_item_id(v) for k, v in types.items()}
+    except (TypeError, ValueError):  # JSONDecodeError is a ValueError
+        pass
+    return {}
+
+
+TASK_TYPES: dict[str, int] = _load_task_types()
+TASK_TYPE_NAMES: dict[int, str] = {v: k for k, v in TASK_TYPES.items()}

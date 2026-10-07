@@ -27,6 +27,7 @@ def test_collect_workspace_config_returns_expected_env(
             "folder-1",
             "field-1",
             '{"backend": "label-1"}',
+            '{"bug": 1234}',
         ]
     )
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
@@ -37,6 +38,7 @@ def test_collect_workspace_config_returns_expected_env(
         "SPRINTS_FOLDER_ID": "folder-1",
         "COMPONENT_TEAM_FIELD_ID": "field-1",
         "CLICKUP_TEAM_LABELS": '{"backend": "label-1"}',
+        "CLICKUP_TASK_TYPES": '{"bug": 1234}',
     }
 
 
