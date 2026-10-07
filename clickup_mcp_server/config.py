@@ -1,7 +1,8 @@
-import json
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from clickup_mcp_server.env_maps import parse_task_types, parse_team_labels
 
 
 class Settings(BaseSettings):
@@ -38,40 +39,15 @@ DOC_VISIBILITY_VALUES = ("PUBLIC", "PRIVATE", "PERSONAL", "HIDDEN")
 
 
 def _load_team_labels() -> dict[str, str]:
-    raw = os.environ.get("CLICKUP_TEAM_LABELS", "")
-    if not raw:
-        return {}
-    try:
-        labels = json.loads(raw)
-        if isinstance(labels, dict):
-            return {str(k): str(v) for k, v in labels.items()}
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return {}
+    return parse_team_labels(os.environ.get("CLICKUP_TEAM_LABELS", "")) or {}
 
 
 TEAM_LABELS: dict[str, str] = _load_team_labels()
 
 
-def _as_item_id(value: object) -> int:
-    # bool is an int subclass and int(1.5) truncates — neither is a type id
-    if isinstance(value, bool) or not isinstance(value, int | str):
-        raise TypeError(f"not an integer id: {value!r}")
-    return int(value)
-
-
 def _load_task_types() -> dict[str, int]:
     """Task type names -> ClickUp custom_item_id, from GET /team/{id}/custom_item."""
-    raw = os.environ.get("CLICKUP_TASK_TYPES", "")
-    if not raw:
-        return {}
-    try:
-        types = json.loads(raw)
-        if isinstance(types, dict):
-            return {str(k).lower(): _as_item_id(v) for k, v in types.items()}
-    except (TypeError, ValueError):  # JSONDecodeError is a ValueError
-        pass
-    return {}
+    return parse_task_types(os.environ.get("CLICKUP_TASK_TYPES", "")) or {}
 
 
 TASK_TYPES: dict[str, int] = _load_task_types()

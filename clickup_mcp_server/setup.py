@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from clickup_mcp_server.env_maps import parse_task_types, parse_team_labels
+
 MCP_NAME = "clickup"
 GIT_PACKAGE_REF = "clickup-mcp-server @ git+https://github.com/asaphe/clickup-mcp.git"
 TOOL_BIN_NAME = "clickup-mcp-server"
@@ -582,8 +584,14 @@ def collect_workspace_config() -> dict[str, str]:
         print(f"    {_LABELS_HINT}")
         labels = input("  CLICKUP_TEAM_LABELS [skip]: ").strip()
         if labels:
-            env_vars["CLICKUP_TEAM_LABELS"] = labels
-            ok("Team labels configured.")
+            if parse_team_labels(labels) is None:
+                warn(
+                    "CLICKUP_TEAM_LABELS must be a JSON object of team names to "
+                    'label IDs, e.g. {"backend": "<label-id>"}; not stored.'
+                )
+            else:
+                env_vars["CLICKUP_TEAM_LABELS"] = labels
+                ok("Team labels configured.")
     print()
 
     print(f"  {bold('Optional: Task types')}")
@@ -593,8 +601,14 @@ def collect_workspace_config() -> dict[str, str]:
     print(f"    {_TASK_TYPES_HINT}")
     task_types = input("  CLICKUP_TASK_TYPES [skip]: ").strip()
     if task_types:
-        env_vars["CLICKUP_TASK_TYPES"] = task_types
-        ok("Task types configured.")
+        if parse_task_types(task_types) is None:
+            warn(
+                "CLICKUP_TASK_TYPES must be a JSON object of task type names to "
+                'integer IDs, e.g. {"bug": 1234}; not stored.'
+            )
+        else:
+            env_vars["CLICKUP_TASK_TYPES"] = task_types
+            ok("Task types configured.")
     print()
 
     return env_vars

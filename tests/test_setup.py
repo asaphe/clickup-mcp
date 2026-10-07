@@ -42,6 +42,57 @@ def test_collect_workspace_config_returns_expected_env(
     }
 
 
+def _collect_with(
+    monkeypatch: pytest.MonkeyPatch, labels: str, task_types: str
+) -> tuple[dict[str, str], list[str]]:
+    answers: Iterator[str] = iter(["workspace-1", "", "field-1", labels, task_types])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    warnings: list[str] = []
+    monkeypatch.setattr(setup, "warn", warnings.append)
+    oks: list[str] = []
+    monkeypatch.setattr(setup, "ok", oks.append)
+    env = setup.collect_workspace_config()
+    return env, warnings + [f"OK:{m}" for m in oks]
+
+
+def test_collect_workspace_config_skips_invalid_task_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", '{"bug": "abc"}')
+
+    assert "CLICKUP_TASK_TYPES" not in env
+    assert any("CLICKUP_TASK_TYPES" in m and "integer" in m for m in messages)
+    assert "OK:Task types configured." not in messages
+
+
+def test_collect_workspace_config_stores_valid_task_types_as_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", '{"Bug": 1234}')
+
+    assert env["CLICKUP_TASK_TYPES"] == '{"Bug": 1234}'
+    assert "OK:Task types configured." in messages
+
+
+def test_collect_workspace_config_skips_invalid_team_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "[1, 2]", "")
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert any("CLICKUP_TEAM_LABELS" in m and "JSON object" in m for m in messages)
+    assert "OK:Team labels configured." not in messages
+
+
+def test_collect_workspace_config_stores_valid_team_labels_as_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, '{"a": "b"}', "")
+
+    assert env["CLICKUP_TEAM_LABELS"] == '{"a": "b"}'
+    assert "OK:Team labels configured." in messages
+
+
 def test_collect_workspace_config_requires_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
