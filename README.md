@@ -1,6 +1,6 @@
 # ClickUp MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 25 tools.
+A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server that connects Claude Code and Claude Desktop to ClickUp. Provides task management, sprint tracking, reporting, workspace navigation, and Doc creation through 28 tools.
 
 ## Features
 
@@ -211,7 +211,7 @@ uv run ruff check .
 
 ```
 clickup_mcp_server/
-  server.py       — FastMCP server entry point and instructions
+  server.py       — MCPServer entry point and instructions
   client.py       — Async HTTP client with retry and rate-limit handling
   config.py       — Settings (env var based, no hardcoded IDs)
   models.py       — Pydantic models for API responses
