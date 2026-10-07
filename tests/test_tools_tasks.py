@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -1034,6 +1034,57 @@ class TestBulkUpdateTasks:
             )
 
         assert captured_body["assignees"] == {"add": [0]}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"status": "done"},
+            {"assignee_add": 0},
+            {"points": 0},
+            {"team": "backend"},
+            {"task_type": "task"},
+        ],
+    )
+    async def test_bulk_single_field_sends_exactly_one_request(
+        self, monkeypatch: pytest.MonkeyPatch, fields: dict[str, object]
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"task": 0})
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.tasks.TEAM_LABELS", {"backend": "label-1"}
+        )
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(
+                clickup_client,
+                "put",
+                new_callable=AsyncMock,
+                return_value=_mock_response(SAMPLE_TASK_RAW),
+            ) as mock_put,
+            patch.object(
+                clickup_client,
+                "post",
+                new_callable=AsyncMock,
+                return_value=_mock_response(SAMPLE_TASK_RAW),
+            ) as mock_post,
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "bulk_update_tasks", {"task_ids": ["TASK-1"], **fields}
+            )
+
+        assert json.loads(get_tool_text(result))["updated"] == ["TASK-1"]
+        assert mock_put.await_count + mock_post.await_count == 1
 
     @pytest.mark.asyncio
     async def test_bulk_sanitizes_clickup_api_error_body(self) -> None:

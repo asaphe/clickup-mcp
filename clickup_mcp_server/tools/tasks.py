@@ -572,6 +572,8 @@ def register_task_tools(server: MCPServer) -> None:
 
         This is a convenience tool that applies the same update to multiple tasks.
         Partial failures are reported — some tasks may succeed while others fail.
+        At least one update field (status, assignee_add, team, points or task_type)
+        is required.
 
         Args:
             task_ids: List of task IDs (custom or UUID). Double-check before calling.
@@ -583,32 +585,26 @@ def register_task_tools(server: MCPServer) -> None:
         """
         if not task_ids:
             return "Error: task_ids list is empty."
-        if not (
-            status
-            or assignee_add is not None
-            or team
-            or points is not None
-            or task_type is not None
-        ):
-            return "Error: no update field given (status, assignee_add, team, points or task_type)."
-
         custom_fields = _build_custom_field_payload(team) if team else None
         item_id = _resolve_task_type(task_type) if task_type is not None else None
+        body: dict[str, object] = {}
+        if status:
+            body["status"] = status
+        if points is not None:
+            body["points"] = points
+        if assignee_add is not None:
+            body["assignees"] = {"add": [assignee_add]}
+        if item_id is not None:
+            body["custom_item_id"] = item_id
+        if not body and not custom_fields:
+            return "Error: no update field given (status, assignee_add, team, points or task_type)."
+
         updated: list[str] = []
         failed: list[dict[str, str]] = []
 
         for tid in task_ids:
             try:
                 resolved = await resolve_task_id(tid)
-                body: dict[str, object] = {}
-                if status:
-                    body["status"] = status
-                if points is not None:
-                    body["points"] = points
-                if assignee_add is not None:
-                    body["assignees"] = {"add": [assignee_add]}
-                if item_id is not None:
-                    body["custom_item_id"] = item_id
                 if body:
                     response = await clickup_client.put(
                         f"/task/{resolved}", json_data=body
