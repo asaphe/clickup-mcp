@@ -50,9 +50,9 @@ def _resolve_task_type(task_type: str) -> int:
         if TASK_TYPES:
             valid = ", ".join(sorted(TASK_TYPES))
             raise ToolError(f"Unknown task_type {task_type!r}. Valid: {valid}.")
-        # A malformed mapping loads as empty, so this message must not claim the variable is unset.
+        # A malformed or empty mapping loads as {}, so the message must not claim the variable is unset.
         raise ToolError(
-            f"Unknown task_type {task_type!r}. CLICKUP_TASK_TYPES is unset or is not a "
+            f"Unknown task_type {task_type!r}. CLICKUP_TASK_TYPES is unset, empty, or not a "
             'JSON object of task type names to integer IDs, e.g. {"bug": 1234}.'
         )
     return item_id
@@ -583,9 +583,17 @@ def register_task_tools(server: MCPServer) -> None:
         """
         if not task_ids:
             return "Error: task_ids list is empty."
+        if not (
+            status
+            or assignee_add is not None
+            or team
+            or points is not None
+            or task_type is not None
+        ):
+            return "Error: no update field given (status, assignee_add, team, points or task_type)."
 
         custom_fields = _build_custom_field_payload(team) if team else None
-        item_id = _resolve_task_type(task_type) if task_type else None
+        item_id = _resolve_task_type(task_type) if task_type is not None else None
         updated: list[str] = []
         failed: list[dict[str, str]] = []
 

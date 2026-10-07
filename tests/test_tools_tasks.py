@@ -325,7 +325,8 @@ class TestCreateTask:
         with (
             patch.object(clickup_client, "post", side_effect=mock_post),
             pytest.raises(
-                ToolError, match="CLICKUP_TASK_TYPES is unset or is not a JSON object"
+                ToolError,
+                match="CLICKUP_TASK_TYPES is unset, empty, or not a JSON object",
             ),
         ):
             await server.call_tool(
@@ -349,11 +350,13 @@ class TestCreateTask:
         server = MCPServer("test")
         register_task_tools(server)
 
-        with pytest.raises(ToolError, match="Valid: bug, epic"):
+        with pytest.raises(ToolError, match="Valid: bug, epic") as exc_info:
             await server.call_tool(
                 "create_task",
                 {"name": "Test", "list_id": "123", "task_type": "story"},
             )
+
+        assert "CLICKUP_TASK_TYPES" not in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_create_task_uses_parent_list_when_different(self) -> None:
@@ -907,6 +910,55 @@ class TestBulkUpdateTasks:
             )
 
         assert put_called is False
+
+    @pytest.mark.asyncio
+    async def test_bulk_empty_task_type_is_rejected_like_create(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234})
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put") as mock_put,
+            pytest.raises(ToolError, match="Unknown task_type ''"),
+        ):
+            await server.call_tool(
+                "bulk_update_tasks", {"task_ids": ["TASK-1"], "task_type": ""}
+            )
+
+        mock_put.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bulk_without_update_fields_returns_error(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put") as mock_put,
+            patch.object(clickup_client, "get") as mock_get,
+            patch.object(clickup_client, "post") as mock_post,
+            patch("clickup_mcp_server.tools.tasks.resolve_task_id") as mock_resolve,
+        ):
+            result = await server.call_tool(
+                "bulk_update_tasks", {"task_ids": ["TASK-1", "TASK-2"], "status": ""}
+            )
+
+        assert get_tool_text(result).startswith("Error:")
+        mock_put.assert_not_called()
+        mock_get.assert_not_called()
+        mock_post.assert_not_called()
+        mock_resolve.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_bulk_sets_task_type_on_each(
