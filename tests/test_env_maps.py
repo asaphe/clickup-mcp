@@ -43,6 +43,20 @@ def test_parse_team_labels_valid() -> None:
     }
 
 
-@pytest.mark.parametrize("raw", ["", "not json", "[]", "null", '"x"', "{a: b}"])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "not json",
+        "[]",
+        "null",
+        '"x"',
+        "{a: b}",
+        '{"a": null}',
+        '{"a": [1]}',
+        '{"a": true}',
+        '{"a": {"b": 1}}',
+    ],
+)
 def test_parse_team_labels_invalid(raw: str) -> None:
     assert parse_team_labels(raw) is None

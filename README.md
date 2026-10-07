@@ -101,7 +101,7 @@ Example `CLICKUP_TASK_TYPES`:
 {"task": 0, "bug": 1234, "epic": 5678}
 ```
 
-Names are matched case-insensitively. Without this variable, tasks are created with ClickUp's default type and `task_type` is rejected. IDs must be integers; an invalid value is ignored as a whole (one bad ID disables the whole mapping), and the setup wizard rejects it.
+Names are matched case-insensitively. Without this variable, tasks are created with ClickUp's default type and `task_type` is rejected. IDs must be integers (a quoted integer such as "1234" is also accepted); an invalid value is ignored as a whole (one bad ID disables the whole mapping), and the setup wizard rejects it.
 
 ### Optional — Tuning
 

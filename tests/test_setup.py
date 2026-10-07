@@ -434,3 +434,23 @@ def test_main_remove_reports_failure_when_a_step_fails(
     monkeypatch.setattr(setup, "remove_claude_desktop", lambda: True)
 
     assert setup.main() == 1
+
+
+def test_collect_workspace_config_skips_empty_task_types_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", "{}")
+
+    assert "CLICKUP_TASK_TYPES" not in env
+    assert any("CLICKUP_TASK_TYPES" in m and "empty" in m for m in messages)
+    assert "OK:Task types configured." not in messages
+
+
+def test_collect_workspace_config_skips_empty_team_labels_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "{}", "")
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert any("CLICKUP_TEAM_LABELS" in m and "empty" in m for m in messages)
+    assert "OK:Team labels configured." not in messages
