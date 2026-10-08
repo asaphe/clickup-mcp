@@ -4,6 +4,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from clickup_mcp_server.comment_markup import (
     MentionResolutionError,
     build_comment_blocks,
+    check_mentions_used,
     has_markup,
     has_mentions,
 )
@@ -132,4 +133,59 @@ def test_unclosed_mentions_scan_in_linear_time() -> None:
 
     start = time.perf_counter()
     assert not has_markup("@[" * 40000)
+    assert time.perf_counter() - start < 2
+
+
+def test_bold_with_code_stays_literal_and_does_not_pair_with_next_bold() -> None:
+    blocks = _build("**Root cause: `cfg` drift** fixed. **Next:** deploy", MEMBERS)
+    assert blocks == [
+        {"text": "**Root cause: `cfg` drift** fixed. "},
+        {"text": "Next:", "attributes": {"bold": True}},
+        {"text": " deploy"},
+    ]
+
+
+def test_mention_between_bold_spans_with_code_renders() -> None:
+    blocks = _build("**see `x` now** cc @[Casey Test] **done**", MEMBERS[2:3])
+    assert blocks == [
+        {"text": "**see `x` now** cc "},
+        {"type": "tag", "user": {"id": 3}},
+        {"text": " "},
+        {"text": "done", "attributes": {"bold": True}},
+    ]
+
+
+def test_mention_inside_bold_with_code_is_rejected() -> None:
+    assert has_markup("**see `x` @[Casey Test]**")
+    with pytest.raises(MentionResolutionError, match="inside bold"):
+        _build("**see `x` @[Casey Test]**", MEMBERS)
+
+
+def test_mention_in_code_inside_bold_with_code_stays_literal() -> None:
+    assert not has_markup("**run `@[x]` now `y`**")
+
+
+def test_listed_mention_missing_from_text_is_rejected() -> None:
+    with pytest.raises(MentionResolutionError, match="nobody would be notified"):
+        check_mentions_used("@Casey Test please look", ["Casey Test"])
+
+
+def test_listed_mention_only_in_code_is_rejected() -> None:
+    with pytest.raises(MentionResolutionError, match="nobody would be notified"):
+        check_mentions_used("run `@[Casey Test]`", ["Casey Test"])
+
+
+def test_listed_mentions_present_pass_case_insensitively() -> None:
+    check_mentions_used(
+        "cc @[Casey Test] and @[JORDAN.S@EXAMPLE.COM]",
+        [" casey test", "jordan.s@example.com"],
+    )
+
+
+def test_bold_with_code_scans_in_linear_time() -> None:
+    import time
+
+    start = time.perf_counter()
+    assert not has_markup("**`" * 40000)
+    assert not has_markup("**a`" + "x" * 200000)
     assert time.perf_counter() - start < 2
