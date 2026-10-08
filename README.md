@@ -135,7 +135,7 @@ Example `CLICKUP_TEAM_LABELS`:
 ### Comments
 | Tool | Description |
 |------|-------------|
-| `add_task_comment` | Post a comment on a task |
+| `add_task_comment` | Post a comment on a task. Single-line `**bold**` and `@[Full Name]` / `@[email]` render as rich text, backtick code stays literal; each mention must also be listed in the `mentions` argument and match exactly one workspace member, outside bold, or nothing is posted |
 | `get_task_comments` | Retrieve comments from a task |
 
 ### Reporting
@@ -215,12 +215,13 @@ clickup_mcp_server/
   client.py       — Async HTTP client with retry and rate-limit handling
   config.py       — Settings (env var based, no hardcoded IDs)
   models.py       — Pydantic models for API responses
+  comment_markup.py — **bold** / @[mention] markup → rich comment blocks
   tools/
     sprint.py     — Sprint detection and caching
     tasks.py      — Task CRUD, search, bulk operations
     comments.py   — Comment read/write
     reporting.py  — Sprint reports with at-risk detection
-    workspace.py  — User info, hierarchy, tags
+    workspace.py  — User info, workspace members, hierarchy, tags
     docs.py       — Doc create/read/update (v3 API)
 ```
 
