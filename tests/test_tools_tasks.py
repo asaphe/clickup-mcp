@@ -238,7 +238,10 @@ class TestCreateTask:
         server = MCPServer("test")
         register_task_tools(server)
 
-        with pytest.raises(ToolError, match="Unknown team"):
+        with pytest.raises(
+            ToolError,
+            match="Unknown team 'unknown'. CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of team names",
+        ):
             await server.call_tool(
                 "create_task",
                 {"name": "Test", "list_id": "123", "team": "unknown"},

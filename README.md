@@ -90,6 +90,8 @@ Example `CLICKUP_TEAM_LABELS`:
 {"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
 ```
 
+Team names are matched case-insensitively. Label IDs must be non-empty strings or integers; an invalid value is ignored as a whole (one bad ID disables every team label), and the setup wizard rejects it.
+
 ### Optional — Task Types
 
 | Variable | Description |

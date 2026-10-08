@@ -216,8 +216,8 @@ def register_workspace_tools(server: MCPServer) -> None:
                     configured=False,
                     in_sync=False,
                     message=(
-                        "CLICKUP_TEAM_LABELS is not configured; no team labels can "
-                        "be reconciled."
+                        "CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of "
+                        "team names to label IDs; no team labels can be reconciled."
                     ),
                 )
             )

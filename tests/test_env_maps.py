@@ -43,6 +43,10 @@ def test_parse_team_labels_valid() -> None:
     }
 
 
+def test_parse_team_labels_lowercases_names() -> None:
+    assert parse_team_labels('{"Backend": "label-1"}') == {"backend": "label-1"}
+
+
 @pytest.mark.parametrize(
     "raw",
     [
@@ -56,6 +60,9 @@ def test_parse_team_labels_valid() -> None:
         '{"a": [1]}',
         '{"a": true}',
         '{"a": {"b": 1}}',
+        '{"a": 1.5}',
+        '{"a": ""}',
+        '{"a": "  "}',
     ],
 )
 def test_parse_team_labels_invalid(raw: str) -> None:

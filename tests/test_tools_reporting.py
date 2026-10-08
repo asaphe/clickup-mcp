@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -62,3 +62,40 @@ class TestFetchTaskPrLinks:
             links = await _fetch_task_pr_links("abc123")
 
         assert links == ["https://github.com/org/repo/pull/7"]
+
+
+class TestSprintReportTeamFilter:
+    @pytest.mark.asyncio
+    async def test_unknown_team_without_labels_names_the_variable_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.models import SprintInfo
+        from clickup_mcp_server.tools.reporting import register_reporting_tools
+        from tests.helpers import get_tool_text
+
+        monkeypatch.setattr("clickup_mcp_server.tools.reporting.TEAM_LABELS", {})
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.reporting.get_current_sprint_cached",
+            AsyncMock(
+                return_value=SprintInfo(
+                    list_id="9", name="S", start_date="0", end_date="0"
+                )
+            ),
+        )
+        server = MCPServer("test")
+        register_reporting_tools(server)
+
+        with patch.object(
+            clickup_client,
+            "get",
+            new_callable=AsyncMock,
+            return_value=_mock_response({"tasks": [], "last_page": True}),
+        ):
+            result = await server.call_tool("get_sprint_report", {"team": "backend"})
+
+        text = get_tool_text(result)
+        assert "Unknown team 'backend'." in text
+        assert "unset, empty, or not a JSON object of team names" in text

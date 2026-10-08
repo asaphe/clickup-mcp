@@ -37,9 +37,10 @@ def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
         if TEAM_LABELS:
             valid = ", ".join(sorted(TEAM_LABELS))
             raise ToolError(f"Unknown team {team!r}. Valid: {valid}.")
+        # A malformed or empty mapping loads as {}, so the message must not claim the variable is unset.
         raise ToolError(
-            f"Unknown team {team!r}. Configure CLICKUP_TEAM_LABELS before using "
-            "team labels."
+            f"Unknown team {team!r}. CLICKUP_TEAM_LABELS is unset, empty, or not a "
+            'JSON object of team names to label IDs, e.g. {"backend": "<label-id>"}.'
         )
     return [{"id": settings.component_team_field_id, "value": [label_id]}]
 
