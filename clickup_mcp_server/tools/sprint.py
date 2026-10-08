@@ -152,7 +152,7 @@ async def get_current_sprint_cached() -> SprintInfo:
     if _sprint_task is None:
         _sprint_task = asyncio.create_task(_fetch_sprint())
     try:
-        return await _sprint_task
+        return await asyncio.shield(_sprint_task)
     except Exception:
         _sprint_task = None
         raise
