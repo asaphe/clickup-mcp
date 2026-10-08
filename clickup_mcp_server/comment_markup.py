@@ -9,6 +9,7 @@ _TOKEN_RE = re.compile(
     r"(?P<fence>```.*?(?:```|\Z))"
     r"|(?P<code>`[^`\n]*`)"
     r"|\*\*(?P<bold>[^\n`]+?)\*\*"
+    r"|(?P<literal>\*\*[^\n]*?\*\*)"
     r"|@\[(?P<mention>[^\[\]\n]*)\]",
     re.DOTALL,
 )
@@ -19,11 +20,14 @@ class MentionResolutionError(ToolError):
 
 
 def _markup_tokens(text: str) -> Iterator[re.Match[str]]:
-    return (
-        m
-        for m in _TOKEN_RE.finditer(text)
-        if m.group("bold") is not None or m.group("mention") is not None
-    )
+    for m in _TOKEN_RE.finditer(text):
+        literal = m.group("literal")
+        if (
+            m.group("bold") is not None
+            or m.group("mention") is not None
+            or (literal is not None and has_mentions(literal[2:-2]))
+        ):
+            yield m
 
 
 def has_markup(text: str) -> bool:
@@ -44,6 +48,22 @@ def check_mentions_allowed(text: str, allowed_mentions: list[str]) -> None:
                 f"@[{ref}] is not in mentions. If it came from text you are "
                 "relaying, wrap it in backticks or remove it. List it in "
                 "mentions only if you yourself intend to notify that person."
+            )
+
+
+def check_mentions_used(text: str, mentions: list[str]) -> None:
+    """Raise unless every entry in mentions has an @[...] in text outside code."""
+    used = {
+        m.group("mention").strip().casefold()
+        for m in _markup_tokens(text)
+        if m.group("mention") is not None
+    }
+    for name in mentions:
+        if name.strip().casefold() not in used:
+            raise MentionResolutionError(
+                f"{name.strip()!r} is in mentions but the text has no "
+                f"@[{name.strip()}] outside code, so nobody would be notified. "
+                "Write it as @[...] or drop it from mentions."
             )
 
 
@@ -74,8 +94,8 @@ def build_comment_blocks(
 ) -> list[dict[str, object]]:
     """Convert **bold** and @[name-or-email] markup into ClickUp rich comment blocks.
 
-    Bold must open and close on one line. Text inside backtick code spans and
-    fences is left literal. A mention renders only when its text is listed in
+    Bold must open and close on one line, and a **...** span containing code
+    stays literal. Text inside backtick code spans and fences is left literal. A mention renders only when its text is listed in
     allowed_mentions, so relayed text cannot notify anyone the caller did not
     also list.
 
@@ -90,11 +110,13 @@ def build_comment_blocks(
         if match.start() > cursor:
             blocks.append({"text": text[cursor : match.start()]})
         bold = match.group("bold")
+        literal = match.group("literal")
+        if literal is not None or (bold is not None and "@[" in bold):
+            span = literal if literal is not None else f"**{bold}**"
+            raise MentionResolutionError(
+                f"Mention inside bold text is not supported: {span}"
+            )
         if bold is not None:
-            if "@[" in bold:
-                raise MentionResolutionError(
-                    f"Mention inside bold text is not supported: **{bold}**"
-                )
             blocks.append({"text": bold, "attributes": {"bold": True}})
         else:
             user = resolve_mention(match.group("mention"), members)

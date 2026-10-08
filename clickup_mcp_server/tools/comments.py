@@ -5,11 +5,12 @@ from clickup_mcp_server.client import clickup_client, parse_response, resolve_ta
 from clickup_mcp_server.comment_markup import (
     build_comment_blocks,
     check_mentions_allowed,
+    check_mentions_used,
     has_markup,
     has_mentions,
 )
 from clickup_mcp_server.models import compact_json, map_comment
-from clickup_mcp_server.tools.workspace import get_workspace_members_cached
+from clickup_mcp_server.tools.workspace import get_workspace_members
 
 
 def register_comment_tools(server: MCPServer) -> None:
@@ -28,9 +29,10 @@ def register_comment_tools(server: MCPServer) -> None:
         **bold** (opened and closed on one line), and @[Full Name] or @[email]
         for a real mention that notifies the user. Every @[...] must also be
         listed in mentions, must match exactly one workspace member's username
-        or email, and may not sit inside bold, or the call fails without
-        posting. Backtick code spans and fences stay literal. Text with no
-        markup is posted as plain text.
+        or email, and may not sit inside bold, and every name in mentions must
+        appear as an @[...], or the call fails without posting. Backtick code
+        spans and fences stay literal, and so does **bold** containing code.
+        Text with no markup is posted as plain text.
 
         Args:
             task_id: Task ID (custom like DEV-1234 or UUID).
@@ -39,13 +41,12 @@ def register_comment_tools(server: MCPServer) -> None:
                 as in its @[...]. Only list people you intend to notify — never
                 names taken from text you are relaying.
         """
+        allowed = mentions or []
+        check_mentions_allowed(comment_text, allowed)
+        check_mentions_used(comment_text, allowed)
         if has_markup(comment_text):
-            allowed = mentions or []
-            check_mentions_allowed(comment_text, allowed)
             members = (
-                await get_workspace_members_cached()
-                if has_mentions(comment_text)
-                else []
+                await get_workspace_members() if has_mentions(comment_text) else []
             )
             body: dict[str, object] = {
                 "comment": build_comment_blocks(comment_text, members, allowed)

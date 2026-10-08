@@ -53,8 +53,11 @@ async def _fetch_workspace_members() -> list[UserInfo]:
     for team in teams_raw:
         if not isinstance(team, dict) or str(team.get("id")) != settings.workspace_id:
             continue
+        members_raw = team.get("members", [])
+        if not isinstance(members_raw, list):
+            raise TypeError("Unexpected /team response format")
         members: list[UserInfo] = []
-        for member in team.get("members", []):
+        for member in members_raw:
             user = member.get("user") if isinstance(member, dict) else None
             if not isinstance(user, dict) or user.get("id") is None:
                 continue
@@ -69,15 +72,19 @@ async def _fetch_workspace_members() -> list[UserInfo]:
     raise ToolError(f"Workspace {settings.workspace_id} not found in /team")
 
 
-async def get_workspace_members_cached() -> list[UserInfo]:
+def _forget_members_task(task: asyncio.Task[list[UserInfo]]) -> None:
+    global _members_task
+    if _members_task is task:
+        _members_task = None
+
+
+async def get_workspace_members() -> list[UserInfo]:
+    """Fetch the current workspace members; concurrent callers share one request."""
     global _members_task
     if _members_task is None:
         _members_task = asyncio.create_task(_fetch_workspace_members())
-    try:
-        return await asyncio.shield(_members_task)
-    except Exception:
-        _members_task = None
-        raise
+        _members_task.add_done_callback(_forget_members_task)
+    return await asyncio.shield(_members_task)
 
 
 async def _fetch_live_team_label_options(space_id: str) -> dict[str, str]:

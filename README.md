@@ -135,7 +135,7 @@ Example `CLICKUP_TEAM_LABELS`:
 ### Comments
 | Tool | Description |
 |------|-------------|
-| `add_task_comment` | Post a comment on a task. Single-line `**bold**` and `@[Full Name]` / `@[email]` render as rich text, backtick code stays literal; each mention must also be listed in the `mentions` argument and match exactly one workspace member, outside bold, or nothing is posted |
+| `add_task_comment` | Post a comment on a task. Single-line `**bold**` and `@[Full Name]` / `@[email]` render as rich text; backtick code, and bold that contains it, stay literal. Each mention must be listed in the `mentions` argument, sit outside bold and match exactly one current workspace member, and each `mentions` entry must appear as an `@[...]`, or nothing is posted |
 | `get_task_comments` | Retrieve comments from a task |
 
 ### Reporting

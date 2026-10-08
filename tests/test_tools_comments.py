@@ -204,3 +204,38 @@ class TestAddCommentMarkup:
             )
         assert posted == []
         _assert_tool_error(result, "not in mentions")
+
+    @pytest.mark.asyncio
+    async def test_listed_mention_without_brackets_posts_nothing(self) -> None:
+        from clickup_mcp_server.tools import workspace
+
+        with patch.object(
+            workspace, "_fetch_workspace_members", side_effect=AssertionError
+        ):
+            posted, result = await self._call(
+                "@Jordan Example please review", mentions=["Jordan Example"]
+            )
+        assert posted == []
+        _assert_tool_error(result, "nobody would be notified")
+
+    @pytest.mark.asyncio
+    async def test_members_are_fetched_for_every_mentioning_comment(self) -> None:
+        from clickup_mcp_server.tools import workspace
+
+        calls = 0
+        real_fetch = workspace._fetch_workspace_members
+
+        async def counting_fetch() -> list[object]:
+            nonlocal calls
+            calls += 1
+            return await real_fetch()
+
+        with patch.object(
+            workspace, "_fetch_workspace_members", side_effect=counting_fetch
+        ):
+            for _ in range(2):
+                posted, _ = await self._call(
+                    "@[Jordan Example] hi", mentions=["Jordan Example"]
+                )
+                assert posted
+        assert calls == 2
