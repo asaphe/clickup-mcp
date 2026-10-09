@@ -30,6 +30,7 @@ def test_parse_task_types_valid(raw: str, expected: dict[str, int]) -> None:
         '{"bug": true}',
         '{"bug": null}',
         '{"bug": 1, "epic": "x"}',
+        '{"bug": 1, "Bug": 2}',
     ],
 )
 def test_parse_task_types_invalid(raw: str) -> None:
@@ -45,6 +46,11 @@ def test_parse_team_labels_valid() -> None:
 
 def test_parse_team_labels_lowercases_names() -> None:
     assert parse_team_labels('{"Backend": "label-1"}') == {"backend": "label-1"}
+
+
+def test_names_match_caselessly_beyond_ascii() -> None:
+    assert parse_team_labels('{"Straße": "x"}') == parse_team_labels('{"STRASSE": "x"}')
+    assert parse_task_types('{"Straße": 1}') == parse_task_types('{"STRASSE": 1}')
 
 
 @pytest.mark.parametrize(
@@ -63,6 +69,8 @@ def test_parse_team_labels_lowercases_names() -> None:
         '{"a": 1.5}',
         '{"a": ""}',
         '{"a": "  "}',
+        '{"backend": "label-1", "Backend": "label-2"}',
+        '{"STRASSE": "label-1", "Straße": "label-2"}',
     ],
 )
 def test_parse_team_labels_invalid(raw: str) -> None:

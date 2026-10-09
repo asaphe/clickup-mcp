@@ -99,3 +99,61 @@ class TestSprintReportTeamFilter:
         text = get_tool_text(result)
         assert "Unknown team 'backend'." in text
         assert "unset, empty, or not a JSON object of team names" in text
+
+    @pytest.mark.parametrize("team", ["Backend", "Straße"])
+    @pytest.mark.asyncio
+    async def test_team_filter_matches_caselessly(
+        self, monkeypatch: pytest.MonkeyPatch, team: str
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.config import settings
+        from clickup_mcp_server.models import SprintInfo
+        from clickup_mcp_server.tools.reporting import register_reporting_tools
+        from tests.conftest import SAMPLE_TASK_RAW
+        from tests.helpers import get_tool_text
+
+        labels = {"backend": "label-1", "strasse": "label-2"}
+        monkeypatch.setattr("clickup_mcp_server.tools.reporting.TEAM_LABELS", labels)
+        monkeypatch.setattr("clickup_mcp_server.models.TEAM_LABELS", labels)
+        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.reporting.get_current_sprint_cached",
+            AsyncMock(
+                return_value=SprintInfo(
+                    list_id="9", name="S", start_date="0", end_date="0"
+                )
+            ),
+        )
+        wanted = "label-2" if team == "Straße" else "label-1"
+        labelled = {
+            **SAMPLE_TASK_RAW,
+            "id": "t1",
+            "name": "labelled-task",
+            "custom_fields": [{"id": "field-1", "value": [wanted]}],
+        }
+        other = {
+            **SAMPLE_TASK_RAW,
+            "id": "t2",
+            "name": "other-task",
+            "custom_fields": [],
+        }
+        server = MCPServer("test")
+        register_reporting_tools(server)
+
+        with patch.object(
+            clickup_client,
+            "get",
+            new_callable=AsyncMock,
+            return_value=_mock_response(
+                {"tasks": [labelled, other], "last_page": True}
+            ),
+        ):
+            result = await server.call_tool(
+                "get_sprint_report", {"team": team, "include_pr_links": False}
+            )
+
+        text = get_tool_text(result)
+        assert "labelled-task" in text
+        assert "other-task" not in text

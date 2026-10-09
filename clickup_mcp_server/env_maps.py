@@ -14,18 +14,23 @@ def _as_item_id(value: object) -> int:
 
 
 def parse_task_types(raw: str) -> dict[str, int] | None:
-    """Task type names -> custom_item_id; None when raw is not a JSON object of integer IDs."""
+    """Task type names -> custom_item_id; None when raw is not a JSON object of integer IDs,
+    or two names differ only in case."""
     try:
         types = json.loads(raw)
         if isinstance(types, dict):
-            return {str(k).lower(): _as_item_id(v) for k, v in types.items()}
+            mapping = {str(k).casefold(): _as_item_id(v) for k, v in types.items()}
+            # Two names that differ only in case would leave the winner to key order.
+            if len(mapping) == len(types):
+                return mapping
     except (TypeError, ValueError):  # JSONDecodeError is a ValueError
         pass
     return None
 
 
 def parse_team_labels(raw: str) -> dict[str, str] | None:
-    """Team names -> label IDs; None when raw is not a JSON object of non-blank strings or integers."""
+    """Team names -> label IDs; None when raw is not a JSON object of non-blank strings or integers,
+    or two names differ only in case."""
     try:
         labels = json.loads(raw)
         if isinstance(labels, dict) and all(
@@ -33,8 +38,10 @@ def parse_team_labels(raw: str) -> dict[str, str] | None:
             or (isinstance(v, int) and not isinstance(v, bool))
             for v in labels.values()
         ):
-            # Lookups lowercase the caller's team name, so the keys must be lowercase too.
-            return {str(k).lower(): str(v) for k, v in labels.items()}
+            # Lookups casefold the caller's team name, so the keys must be casefolded too.
+            mapping = {str(k).casefold(): str(v) for k, v in labels.items()}
+            if len(mapping) == len(labels):
+                return mapping
     except (TypeError, ValueError):
         pass
     return None

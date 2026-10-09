@@ -240,7 +240,8 @@ def register_workspace_tools(server: MCPServer) -> None:
         """List available Component/Team labels and their IDs.
 
         Use team names (lowercase) when creating or updating tasks with a team parameter.
-        Returns the configured CLICKUP_TEAM_LABELS mapping, or an empty object if not configured.
+        Returns the configured CLICKUP_TEAM_LABELS mapping, or an empty object when it is
+        unset, empty, or not a valid mapping of team names to label IDs.
         """
         return compact_json(TEAM_LABELS)
 

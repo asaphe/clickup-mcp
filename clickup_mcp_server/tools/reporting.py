@@ -224,10 +224,10 @@ def register_reporting_tools(server: MCPServer) -> None:
         tasks = [map_task_detail(t) for t in all_tasks_raw]
 
         if team:
-            team_lower = team.lower()
+            team_lower = team.casefold()
             team_label_id = TEAM_LABELS.get(team_lower)
             if team_label_id:
-                tasks = [t for t in tasks if t.team and t.team.lower() == team_lower]
+                tasks = [t for t in tasks if t.team and t.team.casefold() == team_lower]
             else:
                 if TEAM_LABELS:
                     valid_teams = ", ".join(sorted(TEAM_LABELS.keys()))

@@ -225,6 +225,42 @@ class TestCreateTask:
             {"id": "field-1", "value": ["label-1"]}
         ]
 
+    @pytest.mark.parametrize("team", ["Backend", "BACKEND", "Straße"])
+    @pytest.mark.asyncio
+    async def test_create_task_matches_team_caselessly(
+        self, monkeypatch: pytest.MonkeyPatch, team: str
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.config import settings
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        monkeypatch.setattr(
+            "clickup_mcp_server.tools.tasks.TEAM_LABELS",
+            {"backend": "label-1", "strasse": "label-2"},
+        )
+        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
+        captured_body: dict[str, object] = {}
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            if json_data:
+                captured_body.update(json_data)
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with patch.object(clickup_client, "post", side_effect=mock_post):
+            await server.call_tool(
+                "create_task", {"name": "Test", "list_id": "123", "team": team}
+            )
+
+        label = "label-2" if team == "Straße" else "label-1"
+        assert captured_body["custom_fields"] == [{"id": "field-1", "value": [label]}]
+
     @pytest.mark.asyncio
     async def test_create_task_invalid_team_raises(
         self, monkeypatch: pytest.MonkeyPatch

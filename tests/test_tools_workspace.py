@@ -469,3 +469,15 @@ async def test_session_caches_survive_a_cancelled_caller(
         assert calls == 1
     finally:
         setattr(mod, task_var, None)
+
+
+@pytest.mark.asyncio
+async def test_list_teams_names_every_state_of_an_empty_mapping() -> None:
+    from mcp.server.mcpserver import MCPServer
+
+    from clickup_mcp_server.tools.workspace import register_workspace_tools
+
+    server = MCPServer("test")
+    register_workspace_tools(server)
+    tools = {t.name: t for t in await server.list_tools()}
+    assert "unset, empty, or not" in (tools["list_teams"].description or "")

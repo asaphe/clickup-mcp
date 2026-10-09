@@ -32,7 +32,7 @@ from clickup_mcp_server.tools.workspace import get_current_user_cached
 
 
 def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
-    label_id = TEAM_LABELS.get(team.lower())
+    label_id = TEAM_LABELS.get(team.casefold())
     if not label_id:
         if TEAM_LABELS:
             valid = ", ".join(sorted(TEAM_LABELS))
@@ -46,7 +46,7 @@ def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
 
 
 def _resolve_task_type(task_type: str) -> int:
-    item_id = TASK_TYPES.get(task_type.lower())
+    item_id = TASK_TYPES.get(task_type.casefold())
     if item_id is None:
         if TASK_TYPES:
             valid = ", ".join(sorted(TASK_TYPES))
