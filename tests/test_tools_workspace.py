@@ -297,3 +297,175 @@ class TestLiveTeamLabelOptions:
             pytest.raises(TypeError, match="expected a list"),
         ):
             await _fetch_live_team_label_options("222222222")
+
+
+class TestWorkspaceMembersCache:
+    @pytest.fixture(autouse=True)
+    def _reset(self) -> None:
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        ws_mod._members_task = None
+
+    @pytest.mark.asyncio
+    async def test_failed_fetch_is_retried(self) -> None:
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        responses = iter(
+            [
+                _mock_response({"teams": [{"id": "1", "members": []}]}),
+                _mock_response(
+                    {
+                        "teams": [
+                            {
+                                "id": ws_mod.settings.workspace_id,
+                                "members": [{"user": {"id": 7, "username": "b"}}],
+                            }
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return next(responses)
+
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            with pytest.raises(ToolError, match="not found in /team"):
+                await ws_mod.get_workspace_members()
+            members = await ws_mod.get_workspace_members()
+
+        assert [(m.id, m.email) for m in members] == [(7, "")]
+
+    @pytest.mark.asyncio
+    async def test_non_list_teams_is_a_type_error(self) -> None:
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"teams": {"id": "1"}})
+
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(TypeError, match="Unexpected /team response format"),
+        ):
+            await ws_mod.get_workspace_members()
+
+    @pytest.mark.asyncio
+    async def test_non_list_members_is_a_type_error(self) -> None:
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response(
+                {"teams": [{"id": ws_mod.settings.workspace_id, "members": {"a": 1}}]}
+            )
+
+        with (
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            pytest.raises(TypeError, match="Unexpected /team response format"),
+        ):
+            await ws_mod.get_workspace_members()
+
+    @pytest.mark.asyncio
+    async def test_each_call_sees_current_members(self) -> None:
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        def team(username: str) -> httpx.Response:
+            return _mock_response(
+                {
+                    "teams": [
+                        {
+                            "id": ws_mod.settings.workspace_id,
+                            "members": [{"user": {"id": 7, "username": username}}],
+                        }
+                    ]
+                }
+            )
+
+        responses = iter([team("before"), team("after")])
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return next(responses)
+
+        with patch.object(clickup_client, "get", side_effect=mock_get):
+            first = await ws_mod.get_workspace_members()
+            second = await ws_mod.get_workspace_members()
+
+        assert [m.username for m in first] == ["before"]
+        assert [m.username for m in second] == ["after"]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_callers_share_one_fetch(self) -> None:
+        import asyncio
+
+        from clickup_mcp_server.tools import workspace as ws_mod
+
+        calls = 0
+
+        async def slow_fetch() -> list[object]:
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.02)
+            return []
+
+        with patch.object(ws_mod, "_fetch_workspace_members", side_effect=slow_fetch):
+            await asyncio.gather(
+                ws_mod.get_workspace_members(), ws_mod.get_workspace_members()
+            )
+
+        assert calls == 1
+        assert ws_mod._members_task is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module_name", "task_var", "fetch_fn", "getter"),
+    [
+        ("workspace", "_user_task", "_fetch_current_user", "get_current_user_cached"),
+        (
+            "workspace",
+            "_members_task",
+            "_fetch_workspace_members",
+            "get_workspace_members",
+        ),
+        ("sprint", "_sprint_task", "_fetch_sprint", "get_current_sprint_cached"),
+    ],
+)
+async def test_session_caches_survive_a_cancelled_caller(
+    module_name: str, task_var: str, fetch_fn: str, getter: str
+) -> None:
+    import asyncio
+    import importlib
+
+    mod = importlib.import_module(f"clickup_mcp_server.tools.{module_name}")
+    setattr(mod, task_var, None)
+    sentinel = object()
+    calls = 0
+
+    async def slow_fetch() -> object:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return sentinel
+
+    try:
+        with patch.object(mod, fetch_fn, side_effect=slow_fetch):
+            first = asyncio.create_task(getattr(mod, getter)())
+            await asyncio.sleep(0.01)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            assert await getattr(mod, getter)() is sentinel
+        assert calls == 1
+    finally:
+        setattr(mod, task_var, None)

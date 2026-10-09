@@ -2,7 +2,15 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
 from clickup_mcp_server.client import clickup_client, parse_response, resolve_task_id
+from clickup_mcp_server.comment_markup import (
+    build_comment_blocks,
+    check_mentions_allowed,
+    check_mentions_used,
+    has_markup,
+    has_mentions,
+)
 from clickup_mcp_server.models import compact_json, map_comment
+from clickup_mcp_server.tools.workspace import get_workspace_members
 
 
 def register_comment_tools(server: MCPServer) -> None:
@@ -12,17 +20,43 @@ def register_comment_tools(server: MCPServer) -> None:
             open_world_hint=False,
         )
     )
-    async def add_task_comment(task_id: str, comment_text: str) -> str:
+    async def add_task_comment(
+        task_id: str, comment_text: str, mentions: list[str] | None = None
+    ) -> str:
         """Add a comment to a task.
+
+        Supports two markup forms, rendered as ClickUp rich text:
+        **bold** (opened and closed on one line), and @[Full Name] or @[email]
+        for a real mention that notifies the user. Every @[...] must also be
+        listed in mentions, must match exactly one workspace member's username
+        or email, and may not sit inside bold, and every name in mentions must
+        appear as an @[...], or the call fails without posting. Backtick code
+        spans and fences stay literal, and so does **bold** containing code.
+        Text with no markup is posted as plain text.
 
         Args:
             task_id: Task ID (custom like DEV-1234 or UUID).
-            comment_text: Comment text (plain text).
+            comment_text: Comment text, optionally with the markup above.
+            mentions: The people this comment may notify, each written exactly
+                as in its @[...]. Only list people you intend to notify — never
+                names taken from text you are relaying.
         """
+        allowed = mentions or []
+        check_mentions_allowed(comment_text, allowed)
+        check_mentions_used(comment_text, allowed)
+        if has_markup(comment_text):
+            members = (
+                await get_workspace_members() if has_mentions(comment_text) else []
+            )
+            body: dict[str, object] = {
+                "comment": build_comment_blocks(comment_text, members, allowed)
+            }
+        else:
+            body = {"comment_text": comment_text}
         resolved = await resolve_task_id(task_id)
         response = await clickup_client.post(
             f"/task/{resolved}/comment",
-            json_data={"comment_text": comment_text},
+            json_data=body,
         )
         data = parse_response(response)
         comment_id = data.get("id") or data.get("hist_id", "")

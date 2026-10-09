@@ -35,10 +35,56 @@ async def get_current_user_cached() -> UserInfo:
     if _user_task is None:
         _user_task = asyncio.create_task(_fetch_current_user())
     try:
-        return await _user_task
+        return await asyncio.shield(_user_task)
     except Exception:
         _user_task = None
         raise
+
+
+_members_task: asyncio.Task[list[UserInfo]] | None = None
+
+
+async def _fetch_workspace_members() -> list[UserInfo]:
+    response = await clickup_client.get("/team")
+    data = parse_response(response)
+    teams_raw = data.get("teams", [])
+    if not isinstance(teams_raw, list):
+        raise TypeError("Unexpected /team response format")
+    for team in teams_raw:
+        if not isinstance(team, dict) or str(team.get("id")) != settings.workspace_id:
+            continue
+        members_raw = team.get("members", [])
+        if not isinstance(members_raw, list):
+            raise TypeError("Unexpected /team response format")
+        members: list[UserInfo] = []
+        for member in members_raw:
+            user = member.get("user") if isinstance(member, dict) else None
+            if not isinstance(user, dict) or user.get("id") is None:
+                continue
+            members.append(
+                UserInfo(
+                    id=int(user["id"]),
+                    username=str(user.get("username") or ""),
+                    email=str(user.get("email") or ""),
+                )
+            )
+        return members
+    raise ToolError(f"Workspace {settings.workspace_id} not found in /team")
+
+
+def _forget_members_task(task: asyncio.Task[list[UserInfo]]) -> None:
+    global _members_task
+    if _members_task is task:
+        _members_task = None
+
+
+async def get_workspace_members() -> list[UserInfo]:
+    """Fetch the current workspace members; concurrent callers share one request."""
+    global _members_task
+    if _members_task is None:
+        _members_task = asyncio.create_task(_fetch_workspace_members())
+        _members_task.add_done_callback(_forget_members_task)
+    return await asyncio.shield(_members_task)
 
 
 async def _fetch_live_team_label_options(space_id: str) -> dict[str, str]:
