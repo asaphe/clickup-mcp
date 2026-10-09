@@ -1,4 +1,11 @@
-from clickup_mcp_server.models import map_comment, map_task_detail, map_task_summary
+import pytest
+
+from clickup_mcp_server.models import (
+    compact_json,
+    map_comment,
+    map_task_detail,
+    map_task_summary,
+)
 from tests.conftest import SAMPLE_TASK_RAW
 
 
@@ -38,6 +45,22 @@ class TestMapTaskDetail:
         raw = {**SAMPLE_TASK_RAW, "custom_fields": []}
         result = map_task_detail(raw)
         assert result.team is None
+
+    def test_task_type_from_configured_mapping(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("clickup_mcp_server.models.TASK_TYPE_NAMES", {1234: "bug"})
+        raw = {**SAMPLE_TASK_RAW, "custom_item_id": 1234}
+        assert map_task_detail(raw).task_type == "bug"
+
+    def test_task_type_omitted_when_not_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("clickup_mcp_server.models.TASK_TYPE_NAMES", {})
+        raw = {**SAMPLE_TASK_RAW, "custom_item_id": 1234}
+        result = map_task_detail(raw)
+        assert result.task_type is None
+        assert "task_type" not in compact_json(result)
 
     def test_subtasks(self) -> None:
         sub = {

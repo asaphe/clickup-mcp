@@ -1,7 +1,8 @@
-import json
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from clickup_mcp_server.env_maps import parse_task_types, parse_team_labels
 
 
 class Settings(BaseSettings):
@@ -38,16 +39,16 @@ DOC_VISIBILITY_VALUES = ("PUBLIC", "PRIVATE", "PERSONAL", "HIDDEN")
 
 
 def _load_team_labels() -> dict[str, str]:
-    raw = os.environ.get("CLICKUP_TEAM_LABELS", "")
-    if not raw:
-        return {}
-    try:
-        labels = json.loads(raw)
-        if isinstance(labels, dict):
-            return {str(k): str(v) for k, v in labels.items()}
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return {}
+    return parse_team_labels(os.environ.get("CLICKUP_TEAM_LABELS", "")) or {}
 
 
 TEAM_LABELS: dict[str, str] = _load_team_labels()
+
+
+def _load_task_types() -> dict[str, int]:
+    """Task type names -> ClickUp custom_item_id, from GET /team/{id}/custom_item."""
+    return parse_task_types(os.environ.get("CLICKUP_TASK_TYPES", "")) or {}
+
+
+TASK_TYPES: dict[str, int] = _load_task_types()
+TASK_TYPE_NAMES: dict[int, str] = {v: k for k, v in TASK_TYPES.items()}

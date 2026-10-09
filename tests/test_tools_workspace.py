@@ -176,7 +176,8 @@ class TestCheckTeamLabels:
         assert get_called is False
         assert data["configured"] is False
         assert data["in_sync"] is False
-        assert "not configured" in data["message"]
+        assert "unset, empty, or not a JSON object of team names" in data["message"]
+        assert "or gives one name twice ignoring case" in data["message"]
 
     @pytest.mark.asyncio
     async def test_reports_in_sync_when_all_configured_ids_are_live(
@@ -469,3 +470,15 @@ async def test_session_caches_survive_a_cancelled_caller(
         assert calls == 1
     finally:
         setattr(mod, task_var, None)
+
+
+@pytest.mark.asyncio
+async def test_list_teams_names_every_state_of_an_empty_mapping() -> None:
+    from mcp.server.mcpserver import MCPServer
+
+    from clickup_mcp_server.tools.workspace import register_workspace_tools
+
+    server = MCPServer("test")
+    register_workspace_tools(server)
+    tools = {t.name: t for t in await server.list_tools()}
+    assert "unset, empty, or not" in (tools["list_teams"].description or "")

@@ -224,17 +224,18 @@ def register_reporting_tools(server: MCPServer) -> None:
         tasks = [map_task_detail(t) for t in all_tasks_raw]
 
         if team:
-            team_lower = team.lower()
+            team_lower = team.casefold()
             team_label_id = TEAM_LABELS.get(team_lower)
             if team_label_id:
-                tasks = [t for t in tasks if t.team and t.team.lower() == team_lower]
+                tasks = [t for t in tasks if t.team and t.team.casefold() == team_lower]
             else:
                 if TEAM_LABELS:
                     valid_teams = ", ".join(sorted(TEAM_LABELS.keys()))
                     return f"Unknown team '{team}'. Valid teams: {valid_teams}"
                 return (
-                    f"Unknown team '{team}'. "
-                    "No team labels configured — set CLICKUP_TEAM_LABELS."
+                    f"Unknown team '{team}'. CLICKUP_TEAM_LABELS is unset, empty, "
+                    "or not a JSON object of team names to label IDs, "
+                    "or gives one name twice ignoring case."
                 )
 
         task_pr_links: dict[str, list[str]] = {}

@@ -27,6 +27,7 @@ def test_collect_workspace_config_returns_expected_env(
             "folder-1",
             "field-1",
             '{"backend": "label-1"}',
+            '{"bug": 1234}',
         ]
     )
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
@@ -37,7 +38,78 @@ def test_collect_workspace_config_returns_expected_env(
         "SPRINTS_FOLDER_ID": "folder-1",
         "COMPONENT_TEAM_FIELD_ID": "field-1",
         "CLICKUP_TEAM_LABELS": '{"backend": "label-1"}',
+        "CLICKUP_TASK_TYPES": '{"bug": 1234}',
     }
+
+
+def _collect_with(
+    monkeypatch: pytest.MonkeyPatch, labels: str, task_types: str
+) -> tuple[dict[str, str], list[str]]:
+    answers: Iterator[str] = iter(["workspace-1", "", "field-1", labels, task_types])
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    warnings: list[str] = []
+    monkeypatch.setattr(setup, "warn", warnings.append)
+    oks: list[str] = []
+    monkeypatch.setattr(setup, "ok", oks.append)
+    env = setup.collect_workspace_config()
+    return env, warnings + [f"OK:{m}" for m in oks]
+
+
+def test_collect_workspace_config_skips_invalid_task_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", '{"bug": "abc"}')
+
+    assert "CLICKUP_TASK_TYPES" not in env
+    assert any("CLICKUP_TASK_TYPES" in m and "integer" in m for m in messages)
+    assert "OK:Task types configured." not in messages
+
+
+def test_collect_workspace_config_stores_valid_task_types_as_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", '{"Bug": 1234}')
+
+    assert env["CLICKUP_TASK_TYPES"] == '{"Bug": 1234}'
+    assert "OK:Task types configured." in messages
+
+
+def test_collect_workspace_config_skips_invalid_team_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "[1, 2]", "")
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert any("CLICKUP_TEAM_LABELS" in m and "JSON object" in m for m in messages)
+    assert "OK:Team labels configured." not in messages
+
+
+def test_collect_workspace_config_stores_valid_team_labels_as_typed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, '{"a": "b"}', "")
+
+    assert env["CLICKUP_TEAM_LABELS"] == '{"a": "b"}'
+    assert "OK:Team labels configured." in messages
+
+
+@pytest.mark.parametrize(
+    ("labels", "task_types"),
+    [
+        ('{"a": "x", "A": "y"}', '{"bug": 1, "Bug": 2}'),
+        ('{"a": "x", "a": "y"}', '{"bug": 1, "bug": 2}'),
+    ],
+)
+def test_collect_workspace_config_names_a_repeated_name(
+    monkeypatch: pytest.MonkeyPatch, labels: str, task_types: str
+) -> None:
+    env, messages = _collect_with(monkeypatch, labels, task_types)
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert "CLICKUP_TASK_TYPES" not in env
+    for var in ("CLICKUP_TEAM_LABELS", "CLICKUP_TASK_TYPES"):
+        assert any(var in m and "one name twice" in m for m in messages)
+    assert not any(m.startswith("OK:") and "configured" in m for m in messages)
 
 
 def test_collect_workspace_config_requires_workspace_id(
@@ -381,3 +453,23 @@ def test_main_remove_reports_failure_when_a_step_fails(
     monkeypatch.setattr(setup, "remove_claude_desktop", lambda: True)
 
     assert setup.main() == 1
+
+
+def test_collect_workspace_config_skips_empty_task_types_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "", "{}")
+
+    assert "CLICKUP_TASK_TYPES" not in env
+    assert any("CLICKUP_TASK_TYPES" in m and "empty" in m for m in messages)
+    assert "OK:Task types configured." not in messages
+
+
+def test_collect_workspace_config_skips_empty_team_labels_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, messages = _collect_with(monkeypatch, "{}", "")
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert any("CLICKUP_TEAM_LABELS" in m and "empty" in m for m in messages)
+    assert "OK:Team labels configured." not in messages
