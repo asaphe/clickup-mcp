@@ -31,6 +31,7 @@ def test_parse_task_types_valid(raw: str, expected: dict[str, int]) -> None:
         '{"bug": null}',
         '{"bug": 1, "epic": "x"}',
         '{"bug": 1, "Bug": 2}',
+        '{"bug": 1, "bug": 2}',
     ],
 )
 def test_parse_task_types_invalid(raw: str) -> None:
@@ -71,6 +72,7 @@ def test_names_match_caselessly_beyond_ascii() -> None:
         '{"a": "  "}',
         '{"backend": "label-1", "Backend": "label-2"}',
         '{"STRASSE": "label-1", "Straße": "label-2"}',
+        '{"backend": "label-1", "backend": "label-2"}',
     ],
 )
 def test_parse_team_labels_invalid(raw: str) -> None:

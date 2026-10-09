@@ -276,7 +276,8 @@ class TestCreateTask:
 
         with pytest.raises(
             ToolError,
-            match="Unknown team 'unknown'. CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of team names",
+            match="Unknown team 'unknown'. CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of team names"
+            ".* or gives one name twice ignoring case",
         ):
             await server.call_tool(
                 "create_task",
@@ -284,8 +285,9 @@ class TestCreateTask:
             )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("task_type", "item_id"), [("Bug", 1234), ("Straße", 42)])
     async def test_create_task_sets_task_type(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, task_type: str, item_id: int
     ) -> None:
         from mcp.server.mcpserver import MCPServer
 
@@ -293,7 +295,8 @@ class TestCreateTask:
         from clickup_mcp_server.tools.tasks import register_task_tools
 
         monkeypatch.setattr(
-            "clickup_mcp_server.tools.tasks.TASK_TYPES", {"bug": 1234, "epic": 5678}
+            "clickup_mcp_server.tools.tasks.TASK_TYPES",
+            {"bug": 1234, "epic": 5678, "strasse": 42},
         )
         captured_body: dict[str, object] = {}
 
@@ -310,10 +313,10 @@ class TestCreateTask:
         with patch.object(clickup_client, "post", side_effect=mock_post):
             await server.call_tool(
                 "create_task",
-                {"name": "Test", "list_id": "123", "task_type": "Bug"},
+                {"name": "Test", "list_id": "123", "task_type": task_type},
             )
 
-        assert captured_body["custom_item_id"] == 1234
+        assert captured_body["custom_item_id"] == item_id
 
     @pytest.mark.asyncio
     async def test_create_task_omits_task_type_by_default(self) -> None:
@@ -365,7 +368,8 @@ class TestCreateTask:
             patch.object(clickup_client, "post", side_effect=mock_post),
             pytest.raises(
                 ToolError,
-                match="CLICKUP_TASK_TYPES is unset, empty, or not a JSON object",
+                match="CLICKUP_TASK_TYPES is unset, empty, or not a JSON object"
+                ".* or gives one name twice ignoring case",
             ),
         ):
             await server.call_tool(

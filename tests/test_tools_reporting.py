@@ -99,6 +99,7 @@ class TestSprintReportTeamFilter:
         text = get_tool_text(result)
         assert "Unknown team 'backend'." in text
         assert "unset, empty, or not a JSON object of team names" in text
+        assert "or gives one name twice ignoring case" in text
 
     @pytest.mark.parametrize("team", ["Backend", "Straße"])
     @pytest.mark.asyncio

@@ -177,6 +177,7 @@ class TestCheckTeamLabels:
         assert data["configured"] is False
         assert data["in_sync"] is False
         assert "unset, empty, or not a JSON object of team names" in data["message"]
+        assert "or gives one name twice ignoring case" in data["message"]
 
     @pytest.mark.asyncio
     async def test_reports_in_sync_when_all_configured_ids_are_live(

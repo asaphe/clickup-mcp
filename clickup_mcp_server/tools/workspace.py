@@ -264,7 +264,8 @@ def register_workspace_tools(server: MCPServer) -> None:
                     in_sync=False,
                     message=(
                         "CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of "
-                        "team names to label IDs; no team labels can be reconciled."
+                        "team names to label IDs, or gives one name twice ignoring case; "
+                        "no team labels can be reconciled."
                     ),
                 )
             )

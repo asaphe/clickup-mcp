@@ -40,7 +40,8 @@ def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
         # A malformed or empty mapping loads as {}, so the message must not claim the variable is unset.
         raise ToolError(
             f"Unknown team {team!r}. CLICKUP_TEAM_LABELS is unset, empty, or not a "
-            'JSON object of team names to label IDs, e.g. {"backend": "<label-id>"}.'
+            "JSON object of team names to label IDs, or gives one name twice ignoring case, "
+            'e.g. {"backend": "<label-id>"}.'
         )
     return [{"id": settings.component_team_field_id, "value": [label_id]}]
 
@@ -54,7 +55,8 @@ def _resolve_task_type(task_type: str) -> int:
         # A malformed or empty mapping loads as {}, so the message must not claim the variable is unset.
         raise ToolError(
             f"Unknown task_type {task_type!r}. CLICKUP_TASK_TYPES is unset, empty, or not a "
-            'JSON object of task type names to integer IDs, e.g. {"bug": 1234}.'
+            "JSON object of task type names to integer IDs, or gives one name twice "
+            'ignoring case, e.g. {"bug": 1234}.'
         )
     return item_id
 

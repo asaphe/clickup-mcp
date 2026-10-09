@@ -93,6 +93,25 @@ def test_collect_workspace_config_stores_valid_team_labels_as_typed(
     assert "OK:Team labels configured." in messages
 
 
+@pytest.mark.parametrize(
+    ("labels", "task_types"),
+    [
+        ('{"a": "x", "A": "y"}', '{"bug": 1, "Bug": 2}'),
+        ('{"a": "x", "a": "y"}', '{"bug": 1, "bug": 2}'),
+    ],
+)
+def test_collect_workspace_config_names_a_repeated_name(
+    monkeypatch: pytest.MonkeyPatch, labels: str, task_types: str
+) -> None:
+    env, messages = _collect_with(monkeypatch, labels, task_types)
+
+    assert "CLICKUP_TEAM_LABELS" not in env
+    assert "CLICKUP_TASK_TYPES" not in env
+    for var in ("CLICKUP_TEAM_LABELS", "CLICKUP_TASK_TYPES"):
+        assert any(var in m and "one name twice" in m for m in messages)
+    assert not any(m.startswith("OK:") and "configured" in m for m in messages)
+
+
 def test_collect_workspace_config_requires_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

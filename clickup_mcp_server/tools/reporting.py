@@ -234,7 +234,8 @@ def register_reporting_tools(server: MCPServer) -> None:
                     return f"Unknown team '{team}'. Valid teams: {valid_teams}"
                 return (
                     f"Unknown team '{team}'. CLICKUP_TEAM_LABELS is unset, empty, "
-                    "or not a JSON object of team names to label IDs."
+                    "or not a JSON object of team names to label IDs, "
+                    "or gives one name twice ignoring case."
                 )
 
         task_pr_links: dict[str, list[str]] = {}

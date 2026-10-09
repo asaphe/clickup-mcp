@@ -90,7 +90,7 @@ Example `CLICKUP_TEAM_LABELS`:
 {"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
 ```
 
-Team names are matched ignoring case (Unicode case folding, so `Straße` matches `STRASSE`), and two names that differ only in case make the value invalid. Label IDs must be integers or strings that are not empty or whitespace-only; an invalid value is ignored as a whole (one bad ID disables every team label), and the setup wizard rejects it.
+Team names are matched ignoring case (Unicode case folding, so `Straße` matches `STRASSE`), and two names that are equal ignoring case, or one name given twice, make the value invalid. Label IDs must be integers or strings that are not empty or whitespace-only; an invalid value is ignored as a whole (one bad ID disables every team label), and the setup wizard rejects it.
 
 ### Optional — Task Types
 
@@ -103,7 +103,7 @@ Example `CLICKUP_TASK_TYPES`:
 {"task": 0, "bug": 1234, "epic": 5678}
 ```
 
-Names are matched ignoring case, as team names are, and two names that differ only in case make the value invalid. Without this variable, tasks are created with ClickUp's default type and `task_type` is rejected. IDs must be integers (a quoted integer such as "1234" is also accepted); an invalid value is ignored as a whole (one bad ID disables the whole mapping), and the setup wizard rejects it.
+Names are matched ignoring case, as team names are, and two names that are equal ignoring case, or one name given twice, make the value invalid. Without this variable, tasks are created with ClickUp's default type and `task_type` is rejected. IDs must be integers (a quoted integer such as "1234" is also accepted); an invalid value is ignored as a whole (one bad ID disables the whole mapping), and the setup wizard rejects it.
 
 ### Optional — Tuning
 

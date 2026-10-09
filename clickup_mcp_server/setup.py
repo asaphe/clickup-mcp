@@ -587,7 +587,8 @@ def collect_workspace_config() -> dict[str, str]:
             if not parse_team_labels(labels):
                 warn(
                     "CLICKUP_TEAM_LABELS is empty or not a JSON object of team "
-                    'names to label IDs, e.g. {"backend": "<label-id>"}; not stored.'
+                    "names to label IDs, or gives one name twice ignoring case, "
+                    'e.g. {"backend": "<label-id>"}; not stored.'
                 )
             else:
                 env_vars["CLICKUP_TEAM_LABELS"] = labels
@@ -604,7 +605,8 @@ def collect_workspace_config() -> dict[str, str]:
         if not parse_task_types(task_types):
             warn(
                 "CLICKUP_TASK_TYPES is empty or not a JSON object of task type "
-                'names to integer IDs, e.g. {"bug": 1234}; not stored.'
+                "names to integer IDs, or gives one name twice ignoring case, "
+                'e.g. {"bug": 1234}; not stored.'
             )
         else:
             env_vars["CLICKUP_TASK_TYPES"] = task_types
