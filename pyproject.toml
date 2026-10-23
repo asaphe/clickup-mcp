@@ -7,7 +7,7 @@ dependencies = [
     "mcp==2.3.0",
     "httpx>=0.28.0",
     "pydantic>=2.14.1",
-    "pydantic-settings==2.15.0",
+    "pydantic-settings==2.16.1",
 ]
 
 [dependency-groups]
@@ -17,7 +17,7 @@ dev = [
     "pytest-httpx>=0.35.0",
     "mypy>=2.4.0",
     "deptry>=0.25.1",
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [tool.pytest.ini_options]
