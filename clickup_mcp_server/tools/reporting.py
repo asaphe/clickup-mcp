@@ -5,8 +5,7 @@ import re
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from clickup_mcp_server.client import clickup_client, parse_response
-from clickup_mcp_server.config import TEAM_LABELS
+from clickup_mcp_server.client import ClickUpInputError, clickup_client, parse_response
 from clickup_mcp_server.models import (
     AtRiskItem,
     SprintReport,
@@ -14,6 +13,7 @@ from clickup_mcp_server.models import (
     map_comment,
     map_task_detail,
 )
+from clickup_mcp_server.team_labels import resolve_team_label, task_team_ids
 from clickup_mcp_server.tools.sprint import get_current_sprint_cached
 
 logger = logging.getLogger(__name__)
@@ -193,12 +193,18 @@ def register_reporting_tools(server: MCPServer) -> None:
         Requires DEVELOPMENT_SPACE_ID and SPRINTS_FOLDER_ID to be configured.
 
         Args:
-            team: Filter to a Component/Team label (e.g., "backend", "devops").
+            team: Filter to a Component/Team label (see list_teams for the names).
                   If omitted, includes all tasks in the sprint.
-                  Requires CLICKUP_TEAM_LABELS to be configured for filtering.
             include_pr_links: Extract GitHub PR links from task descriptions and
                               comments (default: true). Adds latency for comment fetching.
         """
+        team_id: str | None = None
+        if team is not None:
+            try:
+                team_id = await resolve_team_label(team)
+            except ClickUpInputError as exc:
+                return str(exc)
+
         sprint = await get_current_sprint_cached()
 
         all_tasks_raw: list[dict[str, object]] = []
@@ -221,22 +227,9 @@ def register_reporting_tools(server: MCPServer) -> None:
                 break
             page += 1
 
+        if team_id is not None:
+            all_tasks_raw = [t for t in all_tasks_raw if team_id in task_team_ids(t)]
         tasks = [map_task_detail(t) for t in all_tasks_raw]
-
-        if team:
-            team_lower = team.casefold()
-            team_label_id = TEAM_LABELS.get(team_lower)
-            if team_label_id:
-                tasks = [t for t in tasks if t.team and t.team.casefold() == team_lower]
-            else:
-                if TEAM_LABELS:
-                    valid_teams = ", ".join(sorted(TEAM_LABELS.keys()))
-                    return f"Unknown team '{team}'. Valid teams: {valid_teams}"
-                return (
-                    f"Unknown team '{team}'. CLICKUP_TEAM_LABELS is unset, empty, "
-                    "or not a JSON object of team names to label IDs, "
-                    "or gives one name twice ignoring case."
-                )
 
         task_pr_links: dict[str, list[str]] = {}
         pr_links_unreadable: set[str] = set()

@@ -82,15 +82,17 @@ All configuration is via environment variables. Only `CLICKUP_API_TOKEN` and `WO
 
 | Variable | Description |
 |----------|-------------|
-| `COMPONENT_TEAM_FIELD_ID` | Custom field ID for Component/Team labels |
-| `CLICKUP_TEAM_LABELS` | JSON mapping of team names to label IDs (see below) |
+| `COMPONENT_TEAM_FIELD_ID` | Custom field ID for Component/Team labels. With `DEVELOPMENT_SPACE_ID`, required to resolve team names. |
+| `CLICKUP_TEAM_LABELS` | Optional JSON mapping of alias names to label IDs (see below) |
 
-Example `CLICKUP_TEAM_LABELS`:
+Team names are the field's live labels, read from ClickUp on every team write, lowercased with spaces as hyphens (the label `Platform Team` is passed as `platform-team`). `list_teams` shows the names. The `team` parameter is accepted by `create_task`, `create_sprint_task`, `update_task`, `bulk_update_tasks` (as `team`) and `ensure_task_fields` (as `default_team`).
+
+`CLICKUP_TEAM_LABELS` is optional: it adds aliases for labels whose names callers cannot use directly. Example:
 ```json
-{"backend": "uuid-1", "frontend": "uuid-2", "example-team": "uuid-3"}
+{"backend": "uuid-1", "frontend": "uuid-2"}
 ```
 
-Team names are matched ignoring case (Unicode case folding, so `Straße` matches `STRASSE`), and two names that are equal ignoring case, or one name given twice, make the value invalid. Label IDs must be integers or strings that are not empty or whitespace-only; an invalid value is ignored as a whole (one bad ID disables every team label), and the setup wizard rejects it.
+An alias resolves only while its label ID is live in the field. A name that matches both an alias and a different live label is ambiguous and rejected. Alias names are matched ignoring case (Unicode case folding, so `Straße` matches `STRASSE`), and two names that are equal ignoring case, or one name given twice, make the value invalid. Label IDs must be integers or strings that are not empty or whitespace-only; an invalid value is ignored as a whole (one bad ID disables every alias), and the setup wizard rejects it. `check_team_labels` audits the aliases against the live options.
 
 ### Optional — Task Types
 
@@ -119,7 +121,7 @@ Names are matched ignoring case, as team names are, and two names that are equal
 - **Space ID**: Click on a Space → the ID is in the URL (`/s/{space_id}/...`)
 - **Folder ID**: Click on a Folder → inspect the URL or use the `get_workspace_hierarchy` tool
 - **Custom Field ID**: Use the ClickUp API: `GET /list/{list_id}/field`
-- **Team Label IDs**: Use the ClickUp API: `GET /list/{list_id}/field` → find the labels dropdown field → extract option IDs
+- **Team Label IDs** (only for aliases): Use the ClickUp API: `GET /list/{list_id}/field` → find the labels dropdown field → extract option IDs, or run `list_teams`
 - **Task Type IDs**: Use the ClickUp API: `GET /team/{workspace_id}/custom_item` → each custom task type's `id`
 
 ## Tools
@@ -139,7 +141,7 @@ Names are matched ignoring case, as team names are, and two names that are equal
 | `get_task` | Get task details by ID (DEV-1234 or UUID) |
 | `create_task` | Create a task in any list |
 | `create_sprint_task` | Create a task in the current sprint (auto-assign, team, points) |
-| `update_task` | Update status, assignee, description, points, dates |
+| `update_task` | Update status, assignee, description, points, team, dates |
 | `search_tasks` | Search tasks by name |
 | `get_my_tasks` | Get tasks assigned to the current user |
 | `get_list_tasks` | Get all tasks in a specific list |
@@ -166,8 +168,8 @@ Names are matched ignoring case, as team names are, and two names that are equal
 | `get_workspace_hierarchy` | Browse spaces, folders, and lists |
 | `task_url` | Get the ClickUp URL for a task |
 | `add_tag_to_task` | Add a tag to a task |
-| `list_teams` | List available team labels |
-| `check_team_labels` | Check configured team labels against live ClickUp options |
+| `list_teams` | List the team names callers can pass (live labels plus live aliases) |
+| `check_team_labels` | Audit `CLICKUP_TEAM_LABELS` aliases against live ClickUp options (stale aliases, unmapped live options) |
 
 ### Docs
 | Tool | Description |

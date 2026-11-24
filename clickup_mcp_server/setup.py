@@ -527,10 +527,13 @@ _FOLDER_HINT = (
     "get_workspace_hierarchy tool or URL."
 )
 _FIELD_HINT = (
-    "Custom field ID for your Component/Team dropdown. "
-    "Use the ClickUp API: GET /list/{id}/field"
+    "Custom field ID for your Component/Team field; team names are its live "
+    "labels (needs DEVELOPMENT_SPACE_ID). Use the ClickUp API: GET /list/{id}/field"
 )
-_LABELS_HINT = 'JSON mapping: {"backend": "uuid-1", "frontend": "uuid-2"}'
+_LABELS_HINT = (
+    "Optional aliases (name -> option ID) for labels callers can't use directly: "
+    '{"backend": "uuid-1", "frontend": "uuid-2"}'
+)
 _TASK_TYPES_HINT = (
     'JSON mapping: {"bug": 1234, "epic": 5678}. '
     "Use the ClickUp API: GET /team/{workspace_id}/custom_item"
@@ -572,7 +575,7 @@ def collect_workspace_config() -> dict[str, str]:
     print()
 
     print(f"  {bold('Optional: Team labels')}")
-    print("  Press Enter to skip (team filtering will be disabled).")
+    print("  Press Enter to skip (the team parameter will be disabled).")
     print()
 
     print(f"    {_FIELD_HINT}")

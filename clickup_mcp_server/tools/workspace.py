@@ -13,6 +13,7 @@ from clickup_mcp_server.client import (
 )
 from clickup_mcp_server.config import TEAM_LABELS, settings
 from clickup_mcp_server.models import TeamLabelsAudit, UserInfo, compact_json
+from clickup_mcp_server.team_labels import fetch_team_options, get_team_labels
 
 _user_task: asyncio.Task[UserInfo] | None = None
 
@@ -85,40 +86,6 @@ async def get_workspace_members() -> list[UserInfo]:
         _members_task = asyncio.create_task(_fetch_workspace_members())
         _members_task.add_done_callback(_forget_members_task)
     return await asyncio.shield(_members_task)
-
-
-async def _fetch_live_team_label_options(space_id: str) -> dict[str, str]:
-    """Fetch live Component/Team field options from ClickUp, keyed by ID."""
-    validate_space_id(space_id)
-    response = await clickup_client.get(f"/space/{space_id}/field")
-    data = parse_response(response)
-    fields_raw = data.get("fields", [])
-    if not isinstance(fields_raw, list):
-        raise TypeError(
-            f"Unexpected custom-field response for space {space_id}: "
-            f"'fields' was {type(fields_raw).__name__}, expected a list."
-        )
-
-    for field in fields_raw:
-        if (
-            not isinstance(field, dict)
-            or field.get("id") != settings.component_team_field_id
-        ):
-            continue
-        type_config = field.get("type_config", {})
-        options_raw = (
-            type_config.get("options", []) if isinstance(type_config, dict) else []
-        )
-        return {
-            str(option["id"]): str(option.get("name", ""))
-            for option in options_raw
-            if isinstance(option, dict) and "id" in option
-        }
-    raise ToolError(
-        f"No custom field with id {settings.component_team_field_id!r} exists in "
-        f"space {space_id}. Returning an empty option set would report every "
-        "configured label as stale."
-    )
 
 
 def register_workspace_tools(server: MCPServer) -> None:
@@ -237,13 +204,13 @@ def register_workspace_tools(server: MCPServer) -> None:
         )
     )
     async def list_teams() -> str:
-        """List available Component/Team labels and their IDs.
+        """List the team names to pass as `team`, with their Component/Team option IDs.
 
-        Use team names (lowercase) when creating or updating tasks with a team parameter.
-        Returns the configured CLICKUP_TEAM_LABELS mapping, or an empty object when it is
-        unset, empty, or not a valid mapping of team names to label IDs.
+        Names are the field's live labels lowercased with spaces as hyphens, plus any
+        CLICKUP_TEAM_LABELS aliases whose option is still live. A name that matches
+        two different options is omitted because it cannot be resolved.
         """
-        return compact_json(TEAM_LABELS)
+        return compact_json(await get_team_labels())
 
     @server.tool(
         annotations=ToolAnnotations(
@@ -252,29 +219,20 @@ def register_workspace_tools(server: MCPServer) -> None:
         )
     )
     async def check_team_labels(space_id: str | None = None) -> str:
-        """Audit configured team label IDs against live ClickUp field options.
+        """Audit the CLICKUP_TEAM_LABELS aliases against live Component/Team options.
+
+        Reports stale aliases (their option ID is no longer live) and live options
+        that no alias points at. Aliases are optional, so with none configured every
+        live option is reported as unmapped and the result is in sync.
 
         Args:
             space_id: Space to check. Defaults to the configured development space.
         """
-        if not TEAM_LABELS:
-            return compact_json(
-                TeamLabelsAudit(
-                    configured=False,
-                    in_sync=False,
-                    message=(
-                        "CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of "
-                        "team names to label IDs, or gives one name twice ignoring case; "
-                        "no team labels can be reconciled."
-                    ),
-                )
-            )
-
         sid = space_id or settings.development_space_id
         if not sid:
             return compact_json(
                 TeamLabelsAudit(
-                    configured=True,
+                    configured=bool(TEAM_LABELS),
                     in_sync=False,
                     message=(
                         "No space_id provided and DEVELOPMENT_SPACE_ID is not "
@@ -283,7 +241,7 @@ def register_workspace_tools(server: MCPServer) -> None:
                 )
             )
 
-        live_options = await _fetch_live_team_label_options(sid)
+        live_options = await fetch_team_options(sid)
         stale = {
             team: label_id
             for team, label_id in TEAM_LABELS.items()
@@ -298,7 +256,7 @@ def register_workspace_tools(server: MCPServer) -> None:
 
         return compact_json(
             TeamLabelsAudit(
-                configured=True,
+                configured=bool(TEAM_LABELS),
                 stale=stale,
                 valid=valid,
                 unmapped_live_options=unmapped_live_options,
