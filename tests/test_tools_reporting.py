@@ -4,6 +4,12 @@ import httpx
 import pytest
 
 from clickup_mcp_server.tools.reporting import _fetch_task_pr_links
+from tests.conftest import (
+    BACKEND_OPTION_ID,
+    DATA_PLATFORM_OPTION_ID,
+    FRONTEND_OPTION_ID,
+    RESEARCH_OPTION_ID,
+)
 
 
 def _mock_response(data: dict[str, object], status: int = 200) -> httpx.Response:
@@ -66,59 +72,51 @@ class TestFetchTaskPrLinks:
 
 class TestSprintReportTeamFilter:
     @pytest.mark.asyncio
-    async def test_unknown_team_without_labels_names_the_variable_state(
-        self, monkeypatch: pytest.MonkeyPatch
+    async def test_unknown_team_lists_the_live_names_and_fetches_no_tasks(
+        self,
     ) -> None:
         from mcp.server.mcpserver import MCPServer
 
         from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.models import SprintInfo
         from clickup_mcp_server.tools.reporting import register_reporting_tools
         from tests.helpers import get_tool_text
 
-        monkeypatch.setattr("clickup_mcp_server.tools.reporting.TEAM_LABELS", {})
-        monkeypatch.setattr(
-            "clickup_mcp_server.tools.reporting.get_current_sprint_cached",
-            AsyncMock(
-                return_value=SprintInfo(
-                    list_id="9", name="S", start_date="0", end_date="0"
-                )
-            ),
-        )
         server = MCPServer("test")
         register_reporting_tools(server)
 
-        with patch.object(
-            clickup_client,
-            "get",
-            new_callable=AsyncMock,
-            return_value=_mock_response({"tasks": [], "last_page": True}),
-        ):
-            result = await server.call_tool("get_sprint_report", {"team": "backend"})
+        with patch.object(clickup_client, "get", new_callable=AsyncMock) as mock_get:
+            result = await server.call_tool("get_sprint_report", {"team": "nope"})
 
         text = get_tool_text(result)
-        assert "Unknown team 'backend'." in text
-        assert "unset, empty, or not a JSON object of team names" in text
-        assert "or gives one name twice ignoring case" in text
+        assert "Unknown team 'nope'." in text
+        assert "backend" in text
+        assert "frontend-web-squad" in text
+        mock_get.assert_not_awaited()
 
-    @pytest.mark.parametrize("team", ["Backend", "Straße"])
+    @pytest.mark.parametrize(
+        ("team", "wanted"),
+        [
+            ("Backend", BACKEND_OPTION_ID),
+            ("frontend web squad", FRONTEND_OPTION_ID),
+            ("Straße", RESEARCH_OPTION_ID),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_team_filter_matches_caselessly(
-        self, monkeypatch: pytest.MonkeyPatch, team: str
+    async def test_team_filter_matches_by_option_id(
+        self, monkeypatch: pytest.MonkeyPatch, team: str, wanted: str
     ) -> None:
         from mcp.server.mcpserver import MCPServer
 
         from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.config import settings
         from clickup_mcp_server.models import SprintInfo
         from clickup_mcp_server.tools.reporting import register_reporting_tools
         from tests.conftest import SAMPLE_TASK_RAW
         from tests.helpers import get_tool_text
 
-        labels = {"backend": "label-1", "strasse": "label-2"}
-        monkeypatch.setattr("clickup_mcp_server.tools.reporting.TEAM_LABELS", labels)
-        monkeypatch.setattr("clickup_mcp_server.models.TEAM_LABELS", labels)
-        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
+        monkeypatch.setattr(
+            "clickup_mcp_server.team_labels.TEAM_LABELS",
+            {"strasse": RESEARCH_OPTION_ID},
+        )
         monkeypatch.setattr(
             "clickup_mcp_server.tools.reporting.get_current_sprint_cached",
             AsyncMock(
@@ -127,14 +125,21 @@ class TestSprintReportTeamFilter:
                 )
             ),
         )
-        wanted = "label-2" if team == "Straße" else "label-1"
         labelled = {
             **SAMPLE_TASK_RAW,
             "id": "t1",
             "name": "labelled-task",
-            "custom_fields": [{"id": "field-1", "value": [wanted]}],
+            "custom_fields": [{"id": "test-field-id", "value": [wanted]}],
         }
-        other = {
+        other_option = {
+            **SAMPLE_TASK_RAW,
+            "id": "t3",
+            "name": "other-option-task",
+            "custom_fields": [
+                {"id": "test-field-id", "value": [DATA_PLATFORM_OPTION_ID]}
+            ],
+        }
+        unlabelled = {
             **SAMPLE_TASK_RAW,
             "id": "t2",
             "name": "other-task",
@@ -148,7 +153,7 @@ class TestSprintReportTeamFilter:
             "get",
             new_callable=AsyncMock,
             return_value=_mock_response(
-                {"tasks": [labelled, other], "last_page": True}
+                {"tasks": [labelled, other_option, unlabelled], "last_page": True}
             ),
         ):
             result = await server.call_tool(
@@ -157,4 +162,5 @@ class TestSprintReportTeamFilter:
 
         text = get_tool_text(result)
         assert "labelled-task" in text
+        assert "other-option-task" not in text
         assert "other-task" not in text

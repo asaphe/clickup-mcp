@@ -5,7 +5,13 @@ import httpx
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tests.conftest import SAMPLE_TASK_RAW
+from tests.conftest import (
+    BACKEND_OPTION_ID,
+    DATA_PLATFORM_OPTION_ID,
+    FRONTEND_OPTION_ID,
+    RESEARCH_OPTION_ID,
+    SAMPLE_TASK_RAW,
+)
 from tests.helpers import get_tool_text
 
 
@@ -195,14 +201,8 @@ class TestCreateTask:
         from mcp.server.mcpserver import MCPServer
 
         from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.config import settings
         from clickup_mcp_server.tools.tasks import register_task_tools
 
-        monkeypatch.setattr(
-            "clickup_mcp_server.tools.tasks.TEAM_LABELS",
-            {"example-team": "label-1"},
-        )
-        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
         captured_body: dict[str, object] = {}
 
         async def mock_post(
@@ -218,29 +218,36 @@ class TestCreateTask:
         with patch.object(clickup_client, "post", side_effect=mock_post):
             await server.call_tool(
                 "create_task",
-                {"name": "Test", "list_id": "123", "team": "example-team"},
+                {"name": "Test", "list_id": "123", "team": "backend"},
             )
 
         assert captured_body["custom_fields"] == [
-            {"id": "field-1", "value": ["label-1"]}
+            {"id": "test-field-id", "value": [BACKEND_OPTION_ID]}
         ]
 
-    @pytest.mark.parametrize("team", ["Backend", "BACKEND", "Straße"])
+    @pytest.mark.parametrize(
+        ("team", "option_id"),
+        [
+            ("Backend", BACKEND_OPTION_ID),
+            ("BACKEND", BACKEND_OPTION_ID),
+            ("frontend-web-squad", FRONTEND_OPTION_ID),
+            ("Frontend  Web squad", FRONTEND_OPTION_ID),
+            ("Straße", RESEARCH_OPTION_ID),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_create_task_matches_team_caselessly(
-        self, monkeypatch: pytest.MonkeyPatch, team: str
+        self, monkeypatch: pytest.MonkeyPatch, team: str, option_id: str
     ) -> None:
         from mcp.server.mcpserver import MCPServer
 
         from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.config import settings
         from clickup_mcp_server.tools.tasks import register_task_tools
 
         monkeypatch.setattr(
-            "clickup_mcp_server.tools.tasks.TEAM_LABELS",
-            {"backend": "label-1", "strasse": "label-2"},
+            "clickup_mcp_server.team_labels.TEAM_LABELS",
+            {"strasse": RESEARCH_OPTION_ID},
         )
-        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
         captured_body: dict[str, object] = {}
 
         async def mock_post(
@@ -258,26 +265,23 @@ class TestCreateTask:
                 "create_task", {"name": "Test", "list_id": "123", "team": team}
             )
 
-        label = "label-2" if team == "Straße" else "label-1"
-        assert captured_body["custom_fields"] == [{"id": "field-1", "value": [label]}]
+        assert captured_body["custom_fields"] == [
+            {"id": "test-field-id", "value": [option_id]}
+        ]
 
     @pytest.mark.asyncio
-    async def test_create_task_invalid_team_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_create_task_invalid_team_raises(self) -> None:
         from mcp.server.mcpserver import MCPServer
         from mcp.server.mcpserver.exceptions import ToolError
 
         from clickup_mcp_server.tools.tasks import register_task_tools
 
-        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TEAM_LABELS", {})
         server = MCPServer("test")
         register_task_tools(server)
 
         with pytest.raises(
             ToolError,
-            match="Unknown team 'unknown'. CLICKUP_TEAM_LABELS is unset, empty, or not a JSON object of team names"
-            ".* or gives one name twice ignoring case",
+            match=r"Unknown team 'unknown'\. Valid: backend, data-platform, ",
         ):
             await server.call_tool(
                 "create_task",
@@ -785,6 +789,479 @@ class TestUpdateTask:
         assert "---" in str(captured_body["markdown_content"])
 
 
+def _task_with_team_option(option_id: str, label: str) -> dict[str, object]:
+    raw = dict(SAMPLE_TASK_RAW)
+    raw["custom_fields"] = [
+        {
+            "id": "test-field-id",
+            "type": "labels",
+            "value": [option_id],
+            "type_config": {"options": [{"id": option_id, "label": label}]},
+        }
+    ]
+    return raw
+
+
+class TestUpdateTaskTeam:
+    @pytest.mark.asyncio
+    async def test_update_task_sets_team_only_after_other_fields_succeed(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            calls.append(("POST", path, json_data))
+            return _mock_response({})
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            calls.append(("PUT", path, json_data))
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            calls.append(("GET", path, None))
+            return _mock_response(
+                _task_with_team_option(DATA_PLATFORM_OPTION_ID, "Data Platform")
+            )
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "update_task",
+                {"task_id": "DEV-9999", "status": "done", "team": "Data Platform"},
+            )
+
+        assert calls == [
+            ("PUT", "/task/abc123", {"status": "done"}),
+            (
+                "POST",
+                "/task/abc123/field/test-field-id",
+                {"value": [DATA_PLATFORM_OPTION_ID]},
+            ),
+            ("GET", "/task/abc123", None),
+        ]
+        assert json.loads(get_tool_text(result))["team"] == "data-platform"
+
+    @pytest.mark.asyncio
+    async def test_update_task_rejected_put_leaves_team_untouched(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"err": "Status does not exist"}, status=400)
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            raise AssertionError("team must not be written after a rejected PUT")
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(ToolError, match="400"),
+        ):
+            await server.call_tool(
+                "update_task",
+                {"task_id": "DEV-9999", "status": "closed", "team": "data-platform"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_team_only_reads_task_back(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        posted: list[dict[str, object] | None] = []
+        got: list[str] = []
+
+        async def mock_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            posted.append(json_data)
+            return _mock_response({})
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            got.append(path)
+            return _mock_response(_task_with_team_option(BACKEND_OPTION_ID, "Backend"))
+
+        async def mock_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            raise AssertionError("a team-only update must not PUT an empty body")
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=mock_post),
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch.object(clickup_client, "put", side_effect=mock_put),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "update_task", {"task_id": "DEV-9999", "team": "backend"}
+            )
+            data = json.loads(get_tool_text(result))
+
+        assert posted == [{"value": [BACKEND_OPTION_ID]}]
+        assert got == ["/task/abc123"]
+        assert data["team"] == "backend"
+
+    @pytest.mark.asyncio
+    async def test_update_task_unknown_team_writes_nothing(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def no_write(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            raise AssertionError(f"unexpected write to {path}")
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=no_write),
+            patch.object(clickup_client, "put", side_effect=no_write),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(ToolError, match="Unknown team 'nonsense'"),
+        ):
+            await server.call_tool(
+                "update_task",
+                {"task_id": "DEV-9999", "status": "done", "team": "nonsense"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_reports_a_team_write_clickup_dropped(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def ok_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def ok_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({})
+
+        async def stale_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=ok_put),
+            patch.object(clickup_client, "post", side_effect=ok_post),
+            patch.object(clickup_client, "get", side_effect=stale_get),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(
+                ToolError,
+                match="does not show team 'data-platform'. Already applied: status",
+            ),
+        ):
+            await server.call_tool(
+                "update_task",
+                {"task_id": "DEV-9999", "status": "done", "team": "data-platform"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_failed_team_write_names_applied_fields(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def ok_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def forbidden_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"err": "forbidden"}, status=403)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=ok_put),
+            patch.object(clickup_client, "post", side_effect=forbidden_post),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(
+                ToolError,
+                match=r"Setting team failed: ClickUp API error 403\. Already applied: "
+                r"status\. Retry only what is missing\.$",
+            ),
+        ):
+            await server.call_tool(
+                "update_task",
+                {"task_id": "DEV-9999", "status": "done", "team": "data-platform"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_warns_about_double_append_only_when_applied(
+        self,
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def ok_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def forbidden_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"err": "forbidden"}, status=403)
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=ok_put),
+            patch.object(clickup_client, "post", side_effect=forbidden_post),
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(ToolError, match="appends it twice"),
+        ):
+            await server.call_tool(
+                "update_task",
+                {
+                    "task_id": "DEV-9999",
+                    "append_description": "more",
+                    "team": "data-platform",
+                },
+            )
+
+        async def no_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            raise AssertionError("unexpected PUT")
+
+        with (
+            patch.object(clickup_client, "put", side_effect=no_put),
+            patch.object(clickup_client, "post", side_effect=forbidden_post),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(ToolError) as excinfo,
+        ):
+            await server.call_tool(
+                "update_task", {"task_id": "DEV-9999", "team": "data-platform"}
+            )
+        assert "appends it twice" not in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_update_task_empty_team_is_rejected_before_any_write(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def no_write(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            raise AssertionError(f"unexpected write to {path}")
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=no_write),
+            patch.object(clickup_client, "post", side_effect=no_write),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(ToolError, match="Unknown team ''"),
+        ):
+            await server.call_tool(
+                "update_task", {"task_id": "DEV-9999", "status": "done", "team": ""}
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_failed_read_back_marks_team_unverified(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def ok_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({})
+
+        async def failing_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"err": "unavailable"}, status=503)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=ok_post),
+            patch.object(clickup_client, "get", side_effect=failing_get),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+            pytest.raises(
+                ToolError, match="Already applied: nothing else. Not verified: team"
+            ),
+        ):
+            await server.call_tool(
+                "update_task", {"task_id": "DEV-9999", "team": "data-platform"}
+            )
+
+    @pytest.mark.asyncio
+    async def test_update_task_accepts_object_shaped_team_read_back(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        read_back = dict(SAMPLE_TASK_RAW)
+        read_back["custom_fields"] = [
+            {
+                "id": "test-field-id",
+                "value": [{"id": DATA_PLATFORM_OPTION_ID, "label": "Data Platform"}],
+            }
+        ]
+
+        async def ok_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({})
+
+        async def mock_get(
+            path: str, params: dict[str, str] | None = None
+        ) -> httpx.Response:
+            return _mock_response(read_back)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "post", side_effect=ok_post),
+            patch.object(clickup_client, "get", side_effect=mock_get),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "update_task", {"task_id": "DEV-9999", "team": "data-platform"}
+            )
+
+        assert json.loads(get_tool_text(result))["team"] == "data-platform"
+
+    @pytest.mark.asyncio
+    async def test_bulk_partial_team_failure_hides_clickup_error_body(self) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.tools.tasks import register_task_tools
+
+        async def ok_put(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response(SAMPLE_TASK_RAW)
+
+        async def forbidden_post(
+            path: str, json_data: dict[str, object] | None = None
+        ) -> httpx.Response:
+            return _mock_response({"err": "workspace-internal-detail"}, status=403)
+
+        server = MCPServer("test")
+        register_task_tools(server)
+
+        with (
+            patch.object(clickup_client, "put", side_effect=ok_put),
+            patch.object(clickup_client, "post", side_effect=forbidden_post),
+            patch(
+                "clickup_mcp_server.tools.tasks.resolve_task_id",
+                return_value="abc123",
+            ),
+        ):
+            result = await server.call_tool(
+                "bulk_update_tasks",
+                {"task_ids": ["DEV-1"], "status": "done", "team": "data-platform"},
+            )
+            data = json.loads(get_tool_text(result))
+
+        error = data["failed"][0]["error"]
+        assert "workspace-internal-detail" not in error
+        assert "ClickUp API error 403" in error
+        assert "Already applied: status" in error
+
+
 class TestDeleteTask:
     @pytest.mark.asyncio
     async def test_delete_by_custom_id(self) -> None:
@@ -888,16 +1365,13 @@ class TestDeleteTask:
 
 class TestBulkUpdateTasks:
     @pytest.mark.asyncio
-    async def test_bulk_invalid_team_aborts_before_any_update(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_bulk_invalid_team_aborts_before_any_update(self) -> None:
         from mcp.server.mcpserver import MCPServer
         from mcp.server.mcpserver.exceptions import ToolError
 
         from clickup_mcp_server.client import clickup_client
         from clickup_mcp_server.tools.tasks import register_task_tools
 
-        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TEAM_LABELS", {})
         put_called = False
 
         async def mock_put(
@@ -1098,9 +1572,6 @@ class TestBulkUpdateTasks:
         from clickup_mcp_server.tools.tasks import register_task_tools
 
         monkeypatch.setattr("clickup_mcp_server.tools.tasks.TASK_TYPES", {"task": 0})
-        monkeypatch.setattr(
-            "clickup_mcp_server.tools.tasks.TEAM_LABELS", {"backend": "label-1"}
-        )
         server = MCPServer("test")
         register_task_tools(server)
 
@@ -1168,16 +1639,13 @@ class TestBulkUpdateTasks:
 
 class TestEnsureTaskFields:
     @pytest.mark.asyncio
-    async def test_invalid_default_team_aborts_before_any_write(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_invalid_default_team_aborts_before_any_write(self) -> None:
         from mcp.server.mcpserver import MCPServer
         from mcp.server.mcpserver.exceptions import ToolError
 
         from clickup_mcp_server.client import clickup_client
         from clickup_mcp_server.tools.tasks import register_task_tools
 
-        monkeypatch.setattr("clickup_mcp_server.tools.tasks.TEAM_LABELS", {})
         get_called = False
 
         async def mock_get(
@@ -1252,20 +1720,12 @@ class TestEnsureTaskFields:
         assert data["issues"][0]["fixed"] is True
 
     @pytest.mark.asyncio
-    async def test_all_compliant_true_when_fix_resolves_every_issue(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_all_compliant_true_when_fix_resolves_every_issue(self) -> None:
         from mcp.server.mcpserver import MCPServer
 
         from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.config import settings
         from clickup_mcp_server.tools.tasks import register_task_tools
 
-        monkeypatch.setattr(
-            "clickup_mcp_server.tools.tasks.TEAM_LABELS",
-            {"example-team": "label-1"},
-        )
-        monkeypatch.setattr(settings, "component_team_field_id", "field-1")
         task_missing_team = {**SAMPLE_TASK_RAW, "custom_fields": []}
 
         async def mock_get(
@@ -1295,13 +1755,14 @@ class TestEnsureTaskFields:
                     "task_ids": ["TASK-1"],
                     "required_fields": ["team"],
                     "fix": True,
-                    "default_team": "example-team",
+                    "default_team": "backend",
                 },
             )
             data = json.loads(get_tool_text(result))
 
         assert data["all_compliant"] is True
         assert data["issues"][0]["fixed"] is True
+        assert "error" not in data["issues"][0]
 
 
 class TestDateConversion:

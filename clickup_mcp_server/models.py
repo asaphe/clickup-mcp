@@ -2,12 +2,8 @@ import json
 
 from pydantic import BaseModel, Field
 
-from clickup_mcp_server.config import (
-    DOC_PARENT_TYPE_NAMES,
-    TASK_TYPE_NAMES,
-    TEAM_LABELS,
-    settings,
-)
+from clickup_mcp_server.config import DOC_PARENT_TYPE_NAMES, TASK_TYPE_NAMES
+from clickup_mcp_server.team_labels import task_team_name
 
 
 def compact_json(payload: object) -> str:
@@ -128,6 +124,7 @@ class FieldCheckResult(BaseModel):
     name: str
     missing_fields: list[str]
     fixed: bool
+    error: str | None = None
 
 
 class EnsureFieldsResult(BaseModel):
@@ -210,20 +207,7 @@ def map_task_detail(raw: dict[str, object]) -> TaskDetail:
         else []
     )
 
-    team = None
-    custom_fields = raw.get("custom_fields", [])
-    if isinstance(custom_fields, list) and settings.component_team_field_id:
-        for cf in custom_fields:
-            if (
-                isinstance(cf, dict)
-                and cf.get("id") == settings.component_team_field_id
-            ):
-                values = cf.get("value", [])
-                if values and isinstance(values, list):
-                    label_id = values[0] if values else None
-                    team = next(
-                        (k for k, v in TEAM_LABELS.items() if v == label_id), None
-                    )
+    team = task_team_name(raw)
 
     item_id = raw.get("custom_item_id")
 

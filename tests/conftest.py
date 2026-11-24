@@ -1,9 +1,51 @@
 import os
 
+import pytest
+
 os.environ.setdefault("CLICKUP_API_TOKEN", "test-token-12345")
 os.environ.setdefault("WORKSPACE_ID", "123456789")
 os.environ.setdefault("DEVELOPMENT_SPACE_ID", "222222222")
 os.environ.setdefault("SPRINTS_FOLDER_ID", "333333333")
+
+BACKEND_OPTION_ID = "00000000-0000-4000-8000-0000000000b1"
+FRONTEND_OPTION_ID = "00000000-0000-4000-8000-0000000000f1"
+DATA_PLATFORM_OPTION_ID = "00000000-0000-4000-8000-0000000000d1"
+PLATFORM_OPTION_ID = "00000000-0000-4000-8000-000000000071"
+RESEARCH_OPTION_ID = "00000000-0000-4000-8000-0000000000e5"
+
+
+def live_team_options() -> dict[str, str]:
+    """The Component/Team field's live options as ClickUp labels them."""
+    return {
+        BACKEND_OPTION_ID: "Backend",
+        FRONTEND_OPTION_ID: "Frontend Web squad",
+        DATA_PLATFORM_OPTION_ID: "Data Platform",
+        PLATFORM_OPTION_ID: "Platform ",
+        RESEARCH_OPTION_ID: "Research",
+    }
+
+
+@pytest.fixture(autouse=True)
+def stub_team_options(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, str]:
+    """Serve live team options from memory so unit tests never call ClickUp for them."""
+    from clickup_mcp_server import team_labels
+    from clickup_mcp_server.config import settings
+
+    options = live_team_options()
+    if request.module.__name__.endswith("test_integration"):
+        return options
+
+    monkeypatch.setattr(settings, "component_team_field_id", "test-field-id")
+    if request.node.get_closest_marker("real_team_fetch"):
+        return options
+
+    async def fetch(space_id: str | None = None) -> dict[str, str]:
+        return dict(options)
+
+    monkeypatch.setattr(team_labels, "fetch_team_options", fetch)
+    return options
 
 
 SAMPLE_TASK_RAW: dict[str, object] = {

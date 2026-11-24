@@ -69,6 +69,10 @@ def encode_path_segment(value: object) -> str:
     return quote(str(value), safe="")
 
 
+class ClickUpInputError(ToolError, ValueError):
+    """A bad argument; mcp 2 shows the caller a `ToolError`'s text and hides any other exception's."""
+
+
 # ToolError is the only exception mcp>=2.1 forwards to the caller unmasked.
 class ClickUpAPIError(ToolError):
     def __init__(self, status_code: int, message: str) -> None:

@@ -15,7 +15,7 @@ from clickup_mcp_server.client import (
     validate_list_id,
     validate_task_id,
 )
-from clickup_mcp_server.config import TASK_TYPES, TEAM_LABELS, settings
+from clickup_mcp_server.config import TASK_TYPES, settings
 from clickup_mcp_server.models import (
     BulkUpdateResult,
     CreateTaskResult,
@@ -27,23 +27,23 @@ from clickup_mcp_server.models import (
     map_task_detail,
     map_task_summary,
 )
+from clickup_mcp_server.team_labels import (
+    resolve_team_label,
+    task_team_ids,
+    team_option_unverified,
+)
 from clickup_mcp_server.tools.sprint import get_current_sprint_cached
 from clickup_mcp_server.tools.workspace import get_current_user_cached
 
+_PARAM_FOR_BODY_KEY: dict[str, str] = {
+    "custom_item_id": "task_type",
+    "assignees": "assignee_add",
+}
 
-def _build_custom_field_payload(team: str) -> list[dict[str, object]]:
-    label_id = TEAM_LABELS.get(team.casefold())
-    if not label_id:
-        if TEAM_LABELS:
-            valid = ", ".join(sorted(TEAM_LABELS))
-            raise ToolError(f"Unknown team {team!r}. Valid: {valid}.")
-        # A malformed or empty mapping loads as {}, so the message must not claim the variable is unset.
-        raise ToolError(
-            f"Unknown team {team!r}. CLICKUP_TEAM_LABELS is unset, empty, or not a "
-            "JSON object of team names to label IDs, or gives one name twice ignoring case, "
-            'e.g. {"backend": "<label-id>"}.'
-        )
-    return [{"id": settings.component_team_field_id, "value": [label_id]}]
+
+def _params_applied(body: dict[str, object]) -> list[str]:
+    """Name the tool parameters behind a task PUT body, for retry guidance."""
+    return sorted(_PARAM_FOR_BODY_KEY.get(key, key) for key in body)
 
 
 def _resolve_task_type(task_type: str) -> int:
@@ -61,10 +61,33 @@ def _resolve_task_type(task_type: str) -> int:
     return item_id
 
 
-async def _set_custom_field(task_uuid: str, field_id: object, value: object) -> None:
+def _partial_update_error(
+    applied: list[str], reason: str, unverified: str | None = None
+) -> ToolError:
+    done = ", ".join(applied) if applied else "nothing else"
+    check = f" Not verified: {unverified}; re-read the task." if unverified else ""
+    twice = (
+        "; repeating append_description appends it twice"
+        if "append_description" in applied
+        else ""
+    )
+    return ToolError(
+        f"{reason} Already applied: {done}.{check} Retry only what is missing{twice}."
+    )
+
+
+def _error_summary(exc: Exception) -> str:
+    """Describe a failure without echoing a ClickUp response body."""
+    if isinstance(exc, ClickUpAPIError):
+        return f"ClickUp API error {exc.status_code}"
+    return type(exc).__name__
+
+
+async def _set_team(task_uuid: str, label_id: str) -> None:
     resp = await clickup_client.post(
-        f"/task/{validate_task_id(task_uuid)}/field/{encode_path_segment(field_id)}",
-        json_data={"value": value},
+        f"/task/{validate_task_id(task_uuid)}/field/"
+        f"{encode_path_segment(settings.component_team_field_id)}",
+        json_data={"value": [label_id]},
     )
     parse_response(resp)
 
@@ -159,7 +182,7 @@ def register_task_tools(server: MCPServer) -> None:
                 default status applies. ClickUp configures status sets per list, so
                 no value is safe to impose on an arbitrary list_id.
             points: Story points.
-            team: Component/Team label. See list_teams for available values.
+            team: Component/Team label (lowercase, spaces as hyphens). See list_teams.
             parent_task_id: Parent task ID for creating subtasks. Its list wins over
                 list_id when the two differ.
             priority: 1=urgent, 2=high, 3=normal, 4=low.
@@ -191,8 +214,13 @@ def register_task_tools(server: MCPServer) -> None:
             if parent_list_id and parent_list_id != list_id:
                 target_list_id = parent_list_id
                 list_id_override = parent_list_id
-        if team:
-            body["custom_fields"] = _build_custom_field_payload(team)
+        if team is not None:
+            body["custom_fields"] = [
+                {
+                    "id": settings.component_team_field_id,
+                    "value": [await resolve_team_label(team)],
+                }
+            ]
 
         response = await clickup_client.post(
             f"/list/{target_list_id}/task", json_data=body
@@ -293,6 +321,7 @@ def register_task_tools(server: MCPServer) -> None:
         assignee_remove: int | None = None,
         parent_task_id: str | None = None,
         task_type: str | None = None,
+        team: str | None = None,
     ) -> str:
         """Update fields on a task. Only specified fields are changed.
 
@@ -310,9 +339,24 @@ def register_task_tools(server: MCPServer) -> None:
                 or UUID), including re-parenting a task that has never had a parent.
                 Setting this also moves the task to the parent's list.
             task_type: Task type name from CLICKUP_TASK_TYPES (e.g. "bug").
+            team: Component/Team label (lowercase, spaces as hyphens). See list_teams.
         """
         item_id = _resolve_task_type(task_type) if task_type is not None else None
         resolved = await resolve_task_id(task_id)
+        label_id = await resolve_team_label(team) if team is not None else None
+        given = {
+            "name": name,
+            "status": status,
+            "priority": priority,
+            "points": points,
+            "description": description if append_description is None else None,
+            "append_description": append_description,
+            "assignee_add": assignee_add,
+            "assignee_remove": assignee_remove,
+            "parent_task_id": parent_task_id,
+            "task_type": task_type,
+        }
+        applied = sorted(param for param, value in given.items() if value is not None)
         body: dict[str, object] = {}
 
         if item_id is not None:
@@ -348,11 +392,33 @@ def register_task_tools(server: MCPServer) -> None:
         if assignees:
             body["assignees"] = assignees
 
-        if not body:
+        if not body and label_id is None:
             return "Error: No fields to update. Provide at least one field to change."
 
-        response = await clickup_client.put(f"/task/{resolved}", json_data=body)
-        data = parse_response(response)
+        if body:
+            response = await clickup_client.put(f"/task/{resolved}", json_data=body)
+            data = parse_response(response)
+        if label_id is not None:
+            try:
+                await _set_team(resolved, label_id)
+            except Exception as exc:
+                raise _partial_update_error(
+                    applied, f"Setting team failed: {_error_summary(exc)}."
+                ) from exc
+            try:
+                data = parse_response(await clickup_client.get(f"/task/{resolved}"))
+            except Exception as exc:
+                raise _partial_update_error(
+                    applied,
+                    f"Reading the task back failed: {_error_summary(exc)}.",
+                    unverified="team",
+                ) from exc
+            if label_id not in task_team_ids(data):
+                raise _partial_update_error(
+                    applied,
+                    f"ClickUp accepted the team write but the task does not show "
+                    f"team {team!r}.",
+                )
         detail = map_task_detail(data)
         return compact_json(detail)
 
@@ -588,7 +654,7 @@ def register_task_tools(server: MCPServer) -> None:
         """
         if not task_ids:
             return "Error: task_ids list is empty."
-        custom_fields = _build_custom_field_payload(team) if team else None
+        label_id = await resolve_team_label(team) if team is not None else None
         item_id = _resolve_task_type(task_type) if task_type is not None else None
         body: dict[str, object] = {}
         if status:
@@ -599,11 +665,12 @@ def register_task_tools(server: MCPServer) -> None:
             body["assignees"] = {"add": [assignee_add]}
         if item_id is not None:
             body["custom_item_id"] = item_id
-        if not body and not custom_fields:
+        if not body and label_id is None:
             return "Error: no update field given (status, assignee_add, team, points or task_type)."
 
         updated: list[str] = []
         failed: list[dict[str, str]] = []
+        team_written: list[tuple[str, list[str]]] = []
 
         for tid in task_ids:
             try:
@@ -613,10 +680,17 @@ def register_task_tools(server: MCPServer) -> None:
                         f"/task/{resolved}", json_data=body
                     )
                     parse_response(response)
-                if custom_fields:
-                    await _set_custom_field(
-                        resolved, custom_fields[0]["id"], custom_fields[0]["value"]
-                    )
+                if label_id is not None:
+                    try:
+                        await _set_team(resolved, label_id)
+                    except Exception as exc:
+                        if not body:
+                            raise
+                        raise _partial_update_error(
+                            _params_applied(body),
+                            f"Setting team failed: {_error_summary(exc)}.",
+                        ) from exc
+                    team_written.append((tid, _params_applied(body)))
                 updated.append(tid)
             except ClickUpAPIError as exc:
                 failed.append(
@@ -624,6 +698,14 @@ def register_task_tools(server: MCPServer) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 — per-item isolation: one bad task must not abort the batch
                 failed.append({"task_id": tid, "error": str(exc)})
+
+        if label_id is not None and team_written:
+            reason = await team_option_unverified(label_id)
+            if reason:
+                for tid, applied in team_written:
+                    updated.remove(tid)
+                    error = str(_partial_update_error(applied, f"{reason}."))
+                    failed.append({"task_id": tid, "error": error})
 
         result = BulkUpdateResult(updated=updated, failed=failed, total=len(task_ids))
         return compact_json(result)
@@ -654,12 +736,13 @@ def register_task_tools(server: MCPServer) -> None:
             default_points: Points to set if missing and fix=true.
         """
         fields = required_fields or ["assignee", "team", "points"]
-        default_team_fields = (
-            _build_custom_field_payload(default_team)
-            if fix and default_team and "team" in fields
+        default_label_id = (
+            await resolve_team_label(default_team)
+            if fix and default_team is not None and "team" in fields
             else None
         )
         issues: list[FieldCheckResult] = []
+        team_fixed: list[tuple[FieldCheckResult, list[str]]] = []
 
         for tid in task_ids:
             try:
@@ -683,13 +766,16 @@ def register_task_tools(server: MCPServer) -> None:
                     missing.append("assignee")
 
                 detail = map_task_detail(data)
-                if "team" in fields and not detail.team:
+                if "team" in fields and not task_team_ids(data):
                     missing.append("team")
                 if "points" in fields and detail.points is None:
                     missing.append("points")
 
                 if missing:
                     fixed = False
+                    error: str | None = None
+                    team_set = False
+                    applied: list[str] = []
                     if fix:
                         fix_body: dict[str, object] = {}
                         fixed_fields: set[str] = set()
@@ -705,24 +791,37 @@ def register_task_tools(server: MCPServer) -> None:
                                 f"/task/{resolved}", json_data=fix_body
                             )
                             parse_response(fix_resp)
-                        if "team" in missing and default_team_fields:
-                            await _set_custom_field(
-                                resolved,
-                                default_team_fields[0]["id"],
-                                default_team_fields[0]["value"],
+                            applied = sorted(
+                                {"assignees": "default_assignee_id"}.get(
+                                    key, f"default_{key}"
+                                )
+                                for key in fix_body
                             )
-                            fixed_fields.add("team")
+                        if "team" in missing and default_label_id is not None:
+                            try:
+                                await _set_team(resolved, default_label_id)
+                                fixed_fields.add("team")
+                                team_set = True
+                            except Exception as exc:  # noqa: BLE001 — per-item isolation: a failed team write is reported on the record
+                                error = str(
+                                    _partial_update_error(
+                                        applied,
+                                        f"Setting team failed: {_error_summary(exc)}.",
+                                    )
+                                )
                         fixed = all(field in fixed_fields for field in missing)
 
-                    issues.append(
-                        FieldCheckResult(
-                            task_id=str(data["id"]),
-                            custom_id=data.get("custom_id"),  # type: ignore[arg-type]
-                            name=str(data.get("name", "")),
-                            missing_fields=missing,
-                            fixed=fixed,
-                        )
+                    check = FieldCheckResult(
+                        task_id=str(data["id"]),
+                        custom_id=data.get("custom_id"),  # type: ignore[arg-type]
+                        name=str(data.get("name", "")),
+                        missing_fields=missing,
+                        fixed=fixed,
+                        error=error,
                     )
+                    issues.append(check)
+                    if team_set:
+                        team_fixed.append((check, applied))
             except ClickUpAPIError as exc:
                 issues.append(
                     FieldCheckResult(
@@ -743,6 +842,13 @@ def register_task_tools(server: MCPServer) -> None:
                         fixed=False,
                     )
                 )
+
+        if team_fixed and default_label_id is not None:
+            reason = await team_option_unverified(default_label_id)
+            if reason:
+                for check, applied in team_fixed:
+                    check.fixed = False
+                    check.error = str(_partial_update_error(applied, f"{reason}."))
 
         result = EnsureFieldsResult(
             checked=len(task_ids),

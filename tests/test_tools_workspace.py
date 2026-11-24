@@ -147,8 +147,9 @@ class TestAddTagToTask:
 
 
 class TestCheckTeamLabels:
+    @pytest.mark.real_team_fetch
     @pytest.mark.asyncio
-    async def test_reports_not_configured_without_fetching_live_options(
+    async def test_without_aliases_reports_every_live_option_as_unmapped(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from mcp.server.mcpserver import MCPServer
@@ -157,14 +158,24 @@ class TestCheckTeamLabels:
         from clickup_mcp_server.tools.workspace import register_workspace_tools
 
         monkeypatch.setattr("clickup_mcp_server.tools.workspace.TEAM_LABELS", {})
-        get_called = False
+        live_field = {
+            "fields": [
+                {
+                    "id": "test-field-id",
+                    "type_config": {
+                        "options": [
+                            {"id": "live-1", "label": "Alpha Team"},
+                            {"id": "live-2", "name": "Beta"},
+                        ]
+                    },
+                }
+            ]
+        }
 
         async def mock_get(
             path: str, params: dict[str, str] | None = None
         ) -> httpx.Response:
-            nonlocal get_called
-            get_called = True
-            return _mock_response({})
+            return _mock_response(live_field)
 
         server = MCPServer("test")
         register_workspace_tools(server)
@@ -173,12 +184,37 @@ class TestCheckTeamLabels:
             result = await server.call_tool("check_team_labels", {})
             data = json.loads(get_tool_text(result))
 
-        assert get_called is False
         assert data["configured"] is False
-        assert data["in_sync"] is False
-        assert "unset, empty, or not a JSON object of team names" in data["message"]
-        assert "or gives one name twice ignoring case" in data["message"]
+        assert data["in_sync"] is True
+        assert data["stale"] == {}
+        assert data["unmapped_live_options"] == {
+            "live-1": "Alpha Team",
+            "live-2": "Beta",
+        }
 
+    @pytest.mark.asyncio
+    async def test_reports_missing_space_without_fetching(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from clickup_mcp_server.client import clickup_client
+        from clickup_mcp_server.config import settings
+        from clickup_mcp_server.tools.workspace import register_workspace_tools
+
+        monkeypatch.setattr(settings, "development_space_id", "")
+        server = MCPServer("test")
+        register_workspace_tools(server)
+
+        with patch.object(clickup_client, "get") as mock_get:
+            result = await server.call_tool("check_team_labels", {})
+            data = json.loads(get_tool_text(result))
+
+        mock_get.assert_not_called()
+        assert data["in_sync"] is False
+        assert "DEVELOPMENT_SPACE_ID is not configured" in data["message"]
+
+    @pytest.mark.real_team_fetch
     @pytest.mark.asyncio
     async def test_reports_in_sync_when_all_configured_ids_are_live(
         self, monkeypatch: pytest.MonkeyPatch
@@ -222,6 +258,7 @@ class TestCheckTeamLabels:
         assert data["stale"] == {}
         assert data["valid"] == ["example-team"]
 
+    @pytest.mark.real_team_fetch
     @pytest.mark.asyncio
     async def test_reports_stale_and_unmapped_live_options(
         self, monkeypatch: pytest.MonkeyPatch
@@ -263,41 +300,6 @@ class TestCheckTeamLabels:
         assert data["in_sync"] is False
         assert data["stale"] == {"example-team": "stale-label"}
         assert data["unmapped_live_options"] == {"live-label": "Example Team"}
-
-
-class TestLiveTeamLabelOptions:
-    @pytest.mark.asyncio
-    async def test_missing_component_field_raises(self) -> None:
-        from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.tools.workspace import _fetch_live_team_label_options
-
-        async def mock_get(
-            path: str, params: dict[str, str] | None = None
-        ) -> httpx.Response:
-            return _mock_response({"fields": [{"id": "some-other-field"}]})
-
-        # Returning {} here would report every configured label as stale.
-        with (
-            patch.object(clickup_client, "get", side_effect=mock_get),
-            pytest.raises(ToolError, match="No custom field"),
-        ):
-            await _fetch_live_team_label_options("222222222")
-
-    @pytest.mark.asyncio
-    async def test_non_list_fields_raises(self) -> None:
-        from clickup_mcp_server.client import clickup_client
-        from clickup_mcp_server.tools.workspace import _fetch_live_team_label_options
-
-        async def mock_get(
-            path: str, params: dict[str, str] | None = None
-        ) -> httpx.Response:
-            return _mock_response({"fields": {"not": "a list"}})
-
-        with (
-            patch.object(clickup_client, "get", side_effect=mock_get),
-            pytest.raises(TypeError, match="expected a list"),
-        ):
-            await _fetch_live_team_label_options("222222222")
 
 
 class TestWorkspaceMembersCache:
@@ -473,7 +475,7 @@ async def test_session_caches_survive_a_cancelled_caller(
 
 
 @pytest.mark.asyncio
-async def test_list_teams_names_every_state_of_an_empty_mapping() -> None:
+async def test_list_teams_description_names_the_live_label_rule() -> None:
     from mcp.server.mcpserver import MCPServer
 
     from clickup_mcp_server.tools.workspace import register_workspace_tools
@@ -481,4 +483,6 @@ async def test_list_teams_names_every_state_of_an_empty_mapping() -> None:
     server = MCPServer("test")
     register_workspace_tools(server)
     tools = {t.name: t for t in await server.list_tools()}
-    assert "unset, empty, or not" in (tools["list_teams"].description or "")
+    description = tools["list_teams"].description or ""
+    assert "live labels" in description
+    assert "CLICKUP_TEAM_LABELS" in description

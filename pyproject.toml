@@ -22,6 +22,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = ["real_team_fetch: run team_labels.fetch_team_options against the mocked HTTP client"]
 
 [tool.ruff.lint]
 # pin the two families 0.15/0.16 disagree on, so both versions enforce the same

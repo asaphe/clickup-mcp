@@ -23,7 +23,7 @@ Common workflows:
 - Delete junk: delete_task (permanently remove a task)
 - Compliance: ensure_task_fields (check/fix assignee, team, points)
 - Bulk fix: bulk_update_tasks (set status/team/assignee across multiple tasks)
-- Team labels: check_team_labels (compare config with live options)
+- Teams: live Component/Team labels (list_teams); check_team_labels audits CLICKUP_TEAM_LABELS aliases
 - Sprint report: get_sprint_report (tasks by assignee, status counts, at-risk flags)
 - Shareable report/RFC: create_doc (native ClickUp Doc with real markdown tables,
   not a task description — sharing/visibility is a separate manual step)
@@ -42,3 +42,15 @@ register_comment_tools(mcp_server)
 register_reporting_tools(mcp_server)
 register_workspace_tools(mcp_server)
 register_doc_tools(mcp_server)
+
+
+def reject_unknown_arguments(server: MCPServer) -> None:
+    """Make every tool reject arguments it does not declare instead of dropping them."""
+    for tool in server._tool_manager.list_tools():
+        arg_model = tool.fn_metadata.arg_model
+        arg_model.model_config["extra"] = "forbid"
+        arg_model.model_rebuild(force=True)
+        tool.parameters["additionalProperties"] = False
+
+
+reject_unknown_arguments(mcp_server)
