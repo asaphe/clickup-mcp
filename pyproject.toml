@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "mcp==2.3.0",
     "httpx>=0.28.0",
-    "pydantic>=2.14.3",
+    "pydantic>=2.14.4",
     "pydantic-settings==2.16.3",
 ]
 
@@ -17,7 +17,7 @@ dev = [
     "pytest-httpx>=0.35.0",
     "mypy>=2.4.1",
     "deptry>=0.25.1",
-    "ruff>=0.17.5",
+    "ruff>=0.17.6",
 ]
 
 [tool.pytest.ini_options]
